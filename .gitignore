@@ -70,3 +70,4 @@ Thumbs.db
 # Logs
 *.log
 
+*.pth
