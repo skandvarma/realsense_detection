@@ -1,0 +1,169 @@
+# RealSense Depth Camera 435i Configuration
+camera:
+  device_id: 0  # Device ID for multiple camera support
+
+  # Stream Resolution Settings
+  resolution:
+    width: 640
+    height: 480
+
+  # Stream Configuration
+  streams:
+    color:
+      enabled: true
+      width: 640
+      height: 480
+      framerate: 15
+      format: "RGB8"
+
+    depth:
+      enabled: true
+      width: 640
+      height: 480
+      framerate: 15
+      format: "Z16"
+
+    infrared:
+      enabled: false
+      width: 640
+      height: 480
+      framerate: 30
+      format: "Y8"
+
+  # Stream Alignment
+  alignment:
+    align_depth_to_color: true
+    align_color_to_depth: false
+
+  # Depth Filtering Parameters
+  filters:
+    spatial:
+      enabled: true
+      smooth_alpha: 0.5
+      smooth_delta: 20
+      magnitude: 2
+      hole_fill: 0
+
+    temporal:
+      enabled: true
+      smooth_alpha: 0.4
+      smooth_delta: 20
+      persistence_control: 3
+
+    hole_filling:
+      enabled: true
+      hole_fill: 1
+
+  # Depth Measurement Settings
+  depth:
+    min_distance: 0.1  # meters
+    max_distance: 10.0  # meters
+    units: "meters"
+
+# Object Detection Configuration
+detection:
+  # Active Model Selection (switch between 'yolo' or 'detr')
+  active_model: "detr"
+
+  # YOLO Model Configurations
+  yolo:
+    variant: "yolov8s"  # Options: yolov8n, yolov8s, yolov8m, yolov8l, yolov8x, yolov11n
+    model_path: "data/models/"
+    weights: "yolov8s.pt"
+
+    # Detection Parameters
+    confidence_threshold: 0.5
+    iou_threshold: 0.45
+    max_detections: 100
+
+    # Input Configuration
+    input_size: [640, 640]
+    normalize: true
+
+    # Class Filtering (empty means all classes)
+    target_classes: []
+
+  # DETR Model Configurations
+  detr:
+    variant: "detr-resnet-50"  # Options: detr-resnet-50, detr-resnet-101, conditional-detr-resnet-50
+    model_path: "data/models/"
+    model_name: "facebook/detr-resnet-50"
+
+    # Detection Parameters
+    confidence_threshold: 0.7
+    max_detections: 100
+
+    # Input Configuration
+    input_size: [640, 640]
+    normalize: true
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+
+    # Class Filtering
+    target_classes: []
+
+# Integration and Tracking Configuration
+integration:
+  # 3D Tracking Parameters
+  tracking:
+    disappearance_threshold: 5  # frames before object is considered lost
+    distance_threshold: 0.5     # meters for object association
+    max_age: 30                 # maximum age of track in frames
+    min_hits: 3                 # minimum hits before track is confirmed
+
+  # Coordinate System
+  coordinates:
+    origin: "camera"  # Options: camera, world
+    units: "meters"
+
+  # Performance Optimization
+  performance:
+    use_threading: true
+    target_fps: 30
+    max_queue_size: 10
+
+  # Visualization Settings
+  visualization:
+    display_rgb: true
+    display_depth: true
+    display_detections: true
+    display_3d_positions: true
+    window_size:
+      width: 1280
+      height: 720
+
+    # Display Options
+    show_confidence: true
+    show_distance: true
+    show_fps: true
+    color_scheme: "default"  # Options: default, dark, high_contrast
+
+# Output and Logging Configuration
+output:
+  # Data Logging
+  logging:
+    save_detections: true
+    save_frames: false
+    save_depth_data: true
+
+  # Output Directories
+  directories:
+    base_output: "output/"
+    detections: "output/detections/"
+    frames: "output/frames/"
+    logs: "output/logs/"
+    models: "models/"
+
+  # 3D Position Logging
+  position_logging:
+    enabled: true
+    format: "json"  # Options: json, csv, txt
+    include_timestamp: true
+    include_confidence: true
+    coordinate_precision: 3  # decimal places
+
+  # Session Management
+  session:
+    auto_create_directories: true
+    timestamp_format: "%Y%m%d_%H%M%S"
+    max_log_files: 10

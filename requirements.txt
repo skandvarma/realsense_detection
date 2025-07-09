@@ -1,0 +1,26 @@
+# RealSense Camera Interface
+pyrealsense2>=2.54.1
+
+# Computer Vision and Image Processing
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=9.5.0
+
+# Deep Learning Frameworks
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.30.0
+
+# YOLO Models
+ultralytics>=8.0.0
+
+# Configuration and Data Handling
+PyYAML>=6.0
+matplotlib>=3.7.0
+
+# Utilities and Performance
+psutil>=5.9.0
+tqdm>=4.65.0
+
+# Optional: For enhanced logging
+colorlog>=6.7.0
