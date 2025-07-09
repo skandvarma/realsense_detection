@@ -1,30 +1,30 @@
-# Byte-compiled / optimized / DLL files
+# Python cache files
 __pycache__/
 *.py[cod]
 *$py.class
 
-# C extensions
-*.so
-
 # PyTorch model files
 *.pt
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-*.egg-info/
-.installed.cfg
-*.egg
+# Media files
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.webp
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.mp3
+*.wav
+*.flac
+*.ogg
+
+# C extensions
+*.so
 
 # Virtual environments
 env/
@@ -33,31 +33,40 @@ ENV/
 .venv/
 .env/
 
-# PyInstaller
-*.manifest
-*.spec
+# Build and packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+*.whl
 
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
+# Installer logs
+pip-log.txt
+
+# Unit test and coverage
 .coverage
-.coverage.*
-.cache
-nosetests.xml
+.tox/
+nox/
+.cache/
+pytest_cache/
 coverage.xml
 *.cover
 *.py,cover
-.hypothesis/
+nosetests.xml
+htmlcov/
 
-# PyCharm
+# PyInstaller
+*.spec
+
+# IDEs
+.vscode/
 .idea/
 
-# VSCode
-.vscode/
-
-# MacOS
+# OS-specific
 .DS_Store
+Thumbs.db
 
 # Logs
 *.log
+
