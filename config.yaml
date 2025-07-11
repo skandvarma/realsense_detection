@@ -56,8 +56,8 @@ camera:
 
   # Depth Measurement Settings
   depth:
-    min_distance: 0.1  # meters
-    max_distance: 10.0  # meters
+    min_distance: 0.3  # meters
+    max_distance: 3.0  # meters
     units: "meters"
 
 # Object Detection Configuration
