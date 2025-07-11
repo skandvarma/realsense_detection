@@ -56,8 +56,13 @@ camera:
 
   # Depth Measurement Settings
   depth:
+<<<<<<< HEAD
     min_distance: 0.3  # meters
     max_distance: 3.0  # meters
+=======
+    min_distance: 0.1  # meters
+    max_distance: 10.0  # meters
+>>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
     units: "meters"
 
 # Object Detection Configuration
@@ -67,9 +72,15 @@ detection:
 
   # YOLO Model Configurations
   yolo:
+<<<<<<< HEAD
     variant: "yolo11m"  # Options: yolov8n, yolov8s, yolov8m, yolov8l, yolov8x, yolov11n
     model_path: "data/models/"
     weights: "yolo11m.pt"
+=======
+    variant: "yolov8s"  # Options: yolov8n, yolov8s, yolov8m, yolov8l, yolov8x, yolov11n
+    model_path: "data/models/"
+    weights: "yolov8s.pt"
+>>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
 
     # Detection Parameters
     confidence_threshold: 0.5
@@ -85,9 +96,15 @@ detection:
 
   # DETR Model Configurations
   detr:
+<<<<<<< HEAD
     variant: "Grounding-dino"  # Options: detr-resnet-50, detr-resnet-101, conditional-detr-resnet-50
     model_path: "data/models/"
     model_name: "IDEA-Research/grounding-dino-base"
+=======
+    variant: "detr-resnet-50"  # Options: detr-resnet-50, detr-resnet-101, conditional-detr-resnet-50
+    model_path: "data/models/"
+    model_name: "facebook/detr-resnet-50"
+>>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
 
     # Detection Parameters
     confidence_threshold: 0.7
@@ -166,4 +183,8 @@ output:
   session:
     auto_create_directories: true
     timestamp_format: "%Y%m%d_%H%M%S"
+<<<<<<< HEAD
     max_log_files: 10
+=======
+    max_log_files: 10
+>>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4

@@ -47,9 +47,15 @@ def create_test_setup(config_path: str = "config.yaml"):
         except Exception as e:
             logger.warning(f"Camera setup failed: {e}")
 
+<<<<<<< HEAD
         # Initialize detection system
         factory = DetectorFactory()
         detector = factory.create_detector(config)
+=======
+        # Initialize detection system - YOLO only
+        factory = DetectorFactory()
+        detector = factory.create_detector(config, 'detr')
+>>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
 
         if not detector:
             logger.error("Failed to create YOLO detector")
@@ -256,8 +262,12 @@ def create_info_overlay(image: np.ndarray, result) -> np.ndarray:
     return info_image
 
 
+<<<<<<< HEAD
 def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_video: bool = False,
                         save_frames: bool = False):
+=======
+def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_video: bool = False, save_frames: bool = False):
+>>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
     """Test live detection with camera feed."""
     logger = setup['logger']
     camera_manager = setup['camera_manager']
@@ -272,6 +282,7 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
     try:
         logger.info(f"Starting live detection test for {duration}s")
         if show_video:
+<<<<<<< HEAD
             logger.info("Controls:")
             logger.info("  'q': Quit")
             logger.info("  'p': Change text prompt (for Grounding DINO)")
@@ -303,6 +314,9 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
 
         logger.info("  'q': Quit")
         logger.info("  's': Save frame")
+=======
+            logger.info("Press 'q' to quit early if running with display")
+>>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
 
         start_time = time.time()
         frame_count = 0
@@ -348,6 +362,7 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
                 # Show detailed detection info every 30 frames
                 if frame_count % 30 == 0 or len(enhanced_result.detections) > 0:
                     fps = 1.0 / detection_time if detection_time > 0 else 0
+<<<<<<< HEAD
 
                     # Show current prompt for Grounding DINO
                     prompt_info = ""
@@ -356,6 +371,10 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
 
                     logger.info(
                         f"\n🎥 Frame {frame_count}: {len(enhanced_result.detections)} objects detected, {fps:.1f} FPS{prompt_info}")
+=======
+                    logger.info(
+                        f"\n Frame {frame_count}: {len(enhanced_result.detections)} objects detected, {fps:.1f} FPS")
+>>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
 
                     # Show each detection with details
                     for i, detection in enumerate(enhanced_result.detections):
@@ -385,6 +404,7 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
                 # Show video if requested
                 if show_video:
                     vis_image = create_detection_visualization(bgr_frame, enhanced_result.detections, depth_frame)
+<<<<<<< HEAD
 
                     # Add prompt info to visualization for Grounding DINO
                     if is_grounding_dino:
@@ -392,16 +412,23 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
                         cv2.putText(vis_image, prompt_text, (10, vis_image.shape[0] - 40),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
+=======
+>>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
                     cv2.imshow("Live Detection", vis_image)
 
             frame_count += 1
 
+<<<<<<< HEAD
             # Check for early exit and hotkeys
+=======
+            # Check for early exit (if someone presses 'q' in video window)
+>>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
             if show_video:
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord('q'):
                     logger.info("Early exit requested")
                     break
+<<<<<<< HEAD
                 elif key == ord('p') and is_grounding_dino:
                     # Cycle through pre-defined prompts
                     current_prompt_index = (current_prompt_index + 1) % len(predefined_prompts)
@@ -421,6 +448,8 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
                         save_path = str(output_dir / f"manual_save_{frame_count:06d}.jpg")
                         cv2.imwrite(save_path, vis_image)
                         logger.info(f"💾 Manual save: {save_path}")
+=======
+>>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
 
         # Final statistics
         total_time = time.time() - start_time
@@ -438,13 +467,21 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
         logger.info(f"   Total objects detected: {total_detections}")
         logger.info(f"   Average camera FPS: {avg_fps:.2f}")
         logger.info(f"   Average detection FPS: {detection_fps:.2f}")
+<<<<<<< HEAD
         logger.info(f"    Average detection time: {avg_detection_time * 1000:.1f}ms")
+=======
+        logger.info(f"  ️  Average detection time: {avg_detection_time * 1000:.1f}ms")
+>>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
         logger.info(f"   Visualizations saved to: {output_dir}/")
 
         # Get tracking statistics
         tracking_stats = postprocessor.get_tracking_statistics()
         logger.info(f"    Active tracks: {tracking_stats['confirmed_tracks']}")
+<<<<<<< HEAD
         logger.info(f"   Total tracks created: {tracking_stats['total_tracks']}")
+=======
+        logger.info(f"  Total tracks created: {tracking_stats['total_tracks']}")
+>>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
 
         if show_video:
             cv2.destroyAllWindows()
@@ -458,6 +495,10 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
         return False
 
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
 def create_detection_visualization(image: np.ndarray, detections: List,
                                    depth_frame: Optional[np.ndarray] = None) -> np.ndarray:
     """Create a detailed visualization of detections."""

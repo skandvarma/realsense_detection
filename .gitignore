@@ -71,5 +71,8 @@ Thumbs.db
 *.log
 
 *.pth
+<<<<<<< HEAD
 data/
 data/
+=======
+>>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
