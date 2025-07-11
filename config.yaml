@@ -67,9 +67,9 @@ detection:
 
   # YOLO Model Configurations
   yolo:
-    variant: "yolov8s"  # Options: yolov8n, yolov8s, yolov8m, yolov8l, yolov8x, yolov11n
+    variant: "yolo11m"  # Options: yolov8n, yolov8s, yolov8m, yolov8l, yolov8x, yolov11n
     model_path: "data/models/"
-    weights: "yolov8s.pt"
+    weights: "yolo11m.pt"
 
     # Detection Parameters
     confidence_threshold: 0.5
@@ -85,9 +85,9 @@ detection:
 
   # DETR Model Configurations
   detr:
-    variant: "detr-resnet-50"  # Options: detr-resnet-50, detr-resnet-101, conditional-detr-resnet-50
+    variant: "Grounding-dino"  # Options: detr-resnet-50, detr-resnet-101, conditional-detr-resnet-50
     model_path: "data/models/"
-    model_name: "facebook/detr-resnet-50"
+    model_name: "IDEA-Research/grounding-dino-base"
 
     # Detection Parameters
     confidence_threshold: 0.7

@@ -47,9 +47,9 @@ def create_test_setup(config_path: str = "config.yaml"):
         except Exception as e:
             logger.warning(f"Camera setup failed: {e}")
 
-        # Initialize detection system - YOLO only
+        # Initialize detection system
         factory = DetectorFactory()
-        detector = factory.create_detector(config, 'detr')
+        detector = factory.create_detector(config)
 
         if not detector:
             logger.error("Failed to create YOLO detector")
@@ -256,7 +256,8 @@ def create_info_overlay(image: np.ndarray, result) -> np.ndarray:
     return info_image
 
 
-def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_video: bool = False, save_frames: bool = False):
+def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_video: bool = False,
+                        save_frames: bool = False):
     """Test live detection with camera feed."""
     logger = setup['logger']
     camera_manager = setup['camera_manager']
@@ -271,7 +272,37 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
     try:
         logger.info(f"Starting live detection test for {duration}s")
         if show_video:
-            logger.info("Press 'q' to quit early if running with display")
+            logger.info("Controls:")
+            logger.info("  'q': Quit")
+            logger.info("  'p': Change text prompt (for Grounding DINO)")
+            logger.info("  's': Save frame")
+
+        # Check if using Grounding DINO
+        is_grounding_dino = hasattr(detector, 'is_grounding_dino') and detector.is_grounding_dino
+        if is_grounding_dino:
+            current_prompt = detector.get_current_prompt()
+            logger.info(f"🎯 Grounding DINO mode - Current prompt: '{current_prompt}'")
+
+            # Pre-defined prompts for cycling
+            predefined_prompts = [
+                "person . car . chair . bottle . laptop",
+                "dog . cat . bird . animal",
+                "phone . cup . book . keys . bag",
+                "car . truck . bus . bicycle . motorcycle",
+                "person with glasses . person with hat . child",
+                "red object . blue object . green object",
+                "food . drink . plate . spoon . fork"
+            ]
+            current_prompt_index = 0
+
+            logger.info("🎮 Hotkeys:")
+            logger.info("  'p': Cycle through pre-defined prompts")
+            logger.info("  'r': Reset to default prompt")
+        else:
+            logger.info("🎮 Hotkeys:")
+
+        logger.info("  'q': Quit")
+        logger.info("  's': Save frame")
 
         start_time = time.time()
         frame_count = 0
@@ -317,8 +348,14 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
                 # Show detailed detection info every 30 frames
                 if frame_count % 30 == 0 or len(enhanced_result.detections) > 0:
                     fps = 1.0 / detection_time if detection_time > 0 else 0
+
+                    # Show current prompt for Grounding DINO
+                    prompt_info = ""
+                    if is_grounding_dino:
+                        prompt_info = f" | Prompt: '{detector.get_current_prompt()}'"
+
                     logger.info(
-                        f"\n Frame {frame_count}: {len(enhanced_result.detections)} objects detected, {fps:.1f} FPS")
+                        f"\n🎥 Frame {frame_count}: {len(enhanced_result.detections)} objects detected, {fps:.1f} FPS{prompt_info}")
 
                     # Show each detection with details
                     for i, detection in enumerate(enhanced_result.detections):
@@ -348,16 +385,42 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
                 # Show video if requested
                 if show_video:
                     vis_image = create_detection_visualization(bgr_frame, enhanced_result.detections, depth_frame)
+
+                    # Add prompt info to visualization for Grounding DINO
+                    if is_grounding_dino:
+                        prompt_text = f"Prompt: {detector.get_current_prompt()}"
+                        cv2.putText(vis_image, prompt_text, (10, vis_image.shape[0] - 40),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
                     cv2.imshow("Live Detection", vis_image)
 
             frame_count += 1
 
-            # Check for early exit (if someone presses 'q' in video window)
+            # Check for early exit and hotkeys
             if show_video:
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord('q'):
                     logger.info("Early exit requested")
                     break
+                elif key == ord('p') and is_grounding_dino:
+                    # Cycle through pre-defined prompts
+                    current_prompt_index = (current_prompt_index + 1) % len(predefined_prompts)
+                    new_prompt = predefined_prompts[current_prompt_index]
+                    detector.update_text_prompt(new_prompt)
+                    logger.info(
+                        f"🔄 Switched to prompt {current_prompt_index + 1}/{len(predefined_prompts)}: '{new_prompt}'")
+                elif key == ord('r') and is_grounding_dino:
+                    # Reset to default prompt
+                    detector.update_text_prompt(detector.default_prompt)
+                    current_prompt_index = 0
+                    logger.info(f"🔄 Reset to default prompt: '{detector.default_prompt}'")
+                elif key == ord('s'):
+                    # Save current frame
+                    if 'enhanced_result' in locals():
+                        vis_image = create_detection_visualization(bgr_frame, enhanced_result.detections, depth_frame)
+                        save_path = str(output_dir / f"manual_save_{frame_count:06d}.jpg")
+                        cv2.imwrite(save_path, vis_image)
+                        logger.info(f"💾 Manual save: {save_path}")
 
         # Final statistics
         total_time = time.time() - start_time
@@ -375,13 +438,13 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
         logger.info(f"   Total objects detected: {total_detections}")
         logger.info(f"   Average camera FPS: {avg_fps:.2f}")
         logger.info(f"   Average detection FPS: {detection_fps:.2f}")
-        logger.info(f"  ️  Average detection time: {avg_detection_time * 1000:.1f}ms")
+        logger.info(f"    Average detection time: {avg_detection_time * 1000:.1f}ms")
         logger.info(f"   Visualizations saved to: {output_dir}/")
 
         # Get tracking statistics
         tracking_stats = postprocessor.get_tracking_statistics()
         logger.info(f"    Active tracks: {tracking_stats['confirmed_tracks']}")
-        logger.info(f"  Total tracks created: {tracking_stats['total_tracks']}")
+        logger.info(f"   Total tracks created: {tracking_stats['total_tracks']}")
 
         if show_video:
             cv2.destroyAllWindows()
@@ -393,7 +456,6 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
         import traceback
         traceback.print_exc()
         return False
-
 
 
 def create_detection_visualization(image: np.ndarray, detections: List,

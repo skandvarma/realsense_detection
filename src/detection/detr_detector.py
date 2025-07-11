@@ -14,14 +14,38 @@ import warnings
 # Suppress warnings for cleaner output
 warnings.filterwarnings("ignore", category=UserWarning)
 
+# Robust transformers import with fallback
 try:
-    from transformers import DetrImageProcessor, DetrForObjectDetection
-    from transformers import ConditionalDetrImageProcessor, ConditionalDetrForObjectDetection
-    from transformers import DeformableDetrImageProcessor, DeformableDetrForObjectDetection
     import transformers
+    from transformers import DetrImageProcessor, DetrForObjectDetection
     TRANSFORMERS_AVAILABLE = True
-except ImportError:
+
+    # Optional advanced DETR variants
+    try:
+        from transformers import ConditionalDetrImageProcessor, ConditionalDetrForObjectDetection
+        CONDITIONAL_DETR_AVAILABLE = True
+    except ImportError:
+        CONDITIONAL_DETR_AVAILABLE = False
+
+    try:
+        from transformers import DeformableDetrImageProcessor, DeformableDetrForObjectDetection
+        DEFORMABLE_DETR_AVAILABLE = True
+    except ImportError:
+        DEFORMABLE_DETR_AVAILABLE = False
+
+    # Grounding DINO support
+    try:
+        from transformers import GroundingDinoProcessor, GroundingDinoForObjectDetection
+        GROUNDING_DINO_AVAILABLE = True
+    except ImportError:
+        GROUNDING_DINO_AVAILABLE = False
+
+except ImportError as e:
+    print(f"Transformers import warning: {e}")
     TRANSFORMERS_AVAILABLE = False
+    CONDITIONAL_DETR_AVAILABLE = False
+    DEFORMABLE_DETR_AVAILABLE = False
+    GROUNDING_DINO_AVAILABLE = False
 
 try:
     import tensorrt as trt
@@ -63,6 +87,11 @@ class DETRDetector(BaseDetector):
         self.processor = None
         self.model_variant = model_info.config.get('variant', 'detr-resnet-50')
         self.model_name_hf = model_info.config.get('model_name', 'facebook/detr-resnet-50')
+
+        # Grounding DINO specific
+        self.is_grounding_dino = 'grounding' in self.model_variant.lower()
+        self.default_prompt = model_info.config.get('default_prompt', 'person . car . chair')
+        self.current_prompt = self.default_prompt
 
         # CUDA optimization
         self.cuda_stream = None
@@ -137,7 +166,13 @@ class DETRDetector(BaseDetector):
         """Load DETR model with CUDA optimization."""
         try:
             if not TRANSFORMERS_AVAILABLE:
-                raise ImportError("Transformers not available. Please install: pip install transformers")
+                error_msg = (
+                    "Transformers not available. Please install it:\n"
+                    "pip install transformers torch torchvision Pillow\n"
+                    f"Current Python: {self.device}\n"
+                    "Run: python tests/test_transformers.py to diagnose the issue"
+                )
+                raise ImportError(error_msg)
 
             if not PIL_AVAILABLE:
                 raise ImportError("PIL not available. Please install: pip install Pillow")
@@ -179,9 +214,14 @@ class DETRDetector(BaseDetector):
             # Set model to evaluation mode
             self.model.eval()
 
-            # Enable gradient checkpointing for memory efficiency
+            # Enable gradient checkpointing for memory efficiency (if supported)
             if self.memory_efficient and hasattr(self.model, 'gradient_checkpointing_enable'):
-                self.model.gradient_checkpointing_enable()
+                try:
+                    self.model.gradient_checkpointing_enable()
+                    self.logger.info("Gradient checkpointing enabled")
+                except Exception as e:
+                    self.logger.info(f"Gradient checkpointing not supported: {e}")
+                    self.memory_efficient = False
 
             # Setup mixed precision
             if self.use_amp and self.device.type == 'cuda':
@@ -216,9 +256,19 @@ class DETRDetector(BaseDetector):
         variant_map = {
             'detr-resnet-50': (DetrForObjectDetection, DetrImageProcessor),
             'detr-resnet-101': (DetrForObjectDetection, DetrImageProcessor),
-            'conditional-detr-resnet-50': (ConditionalDetrForObjectDetection, ConditionalDetrImageProcessor),
-            'deformable-detr': (DeformableDetrForObjectDetection, DeformableDetrImageProcessor),
         }
+
+        # Add conditional DETR if available
+        if CONDITIONAL_DETR_AVAILABLE:
+            variant_map['conditional-detr-resnet-50'] = (ConditionalDetrForObjectDetection, ConditionalDetrImageProcessor)
+
+        # Add deformable DETR if available
+        if DEFORMABLE_DETR_AVAILABLE:
+            variant_map['deformable-detr'] = (DeformableDetrForObjectDetection, DeformableDetrImageProcessor)
+
+        # Add Grounding DINO if available
+        if GROUNDING_DINO_AVAILABLE:
+            variant_map['grounding-dino'] = (GroundingDinoForObjectDetection, GroundingDinoProcessor)
 
         # Default to standard DETR if variant not found
         return variant_map.get(self.model_variant, (DetrForObjectDetection, DetrImageProcessor))
@@ -257,6 +307,41 @@ class DETRDetector(BaseDetector):
         except Exception as e:
             self.logger.warning(f"TensorRT setup failed for DETR: {e}")
             self.use_tensorrt = False
+
+    def _build_tensorrt_engine(self, onnx_path: str, engine_path: str):
+        """Build TensorRT engine from ONNX model."""
+        if not TENSORRT_AVAILABLE:
+            return
+
+        logger = trt.Logger(trt.Logger.WARNING)
+        builder = trt.Builder(logger)
+        config = builder.create_builder_config()
+
+        # Set memory pool
+        config.max_workspace_size = 1 << 28  # 256MB
+
+        # Enable FP16 if available
+        if self.use_fp16 and builder.platform_has_fast_fp16:
+            config.set_flag(trt.BuilderFlag.FP16)
+
+        # Create network
+        network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+        parser = trt.OnnxParser(network, logger)
+
+        # Parse ONNX model
+        with open(onnx_path, 'rb') as model:
+            if not parser.parse(model.read()):
+                self.logger.error("Failed to parse ONNX model")
+                return
+
+        # Build engine
+        engine = builder.build_engine(network, config)
+
+        # Save engine
+        with open(engine_path, 'wb') as f:
+            f.write(engine.serialize())
+
+        self.tensorrt_engine = engine
 
     def _warmup_model(self):
         """Warmup DETR model for optimal performance."""
@@ -299,6 +384,7 @@ class DETRDetector(BaseDetector):
         Args:
             image: Input image as numpy array
             **kwargs: Additional detection parameters
+                - text_prompt: Text prompt for Grounding DINO (optional)
 
         Returns:
             DetectionResult with detected objects
@@ -329,10 +415,103 @@ class DETRDetector(BaseDetector):
         try:
             # Extract parameters
             confidence_threshold = kwargs.get('confidence_threshold', self.model_info.confidence_threshold)
+            text_prompt = kwargs.get('text_prompt', self.current_prompt)
 
             # Preprocessing
             preprocess_start = time.time()
-            processed_inputs = self.preprocess_image(image)
+            processed_inputs = self.preprocess_image(image, text_prompt)
+            preprocess_time = time.time() - preprocess_start
+
+            # Inference
+            inference_start = time.time()
+            with torch.cuda.stream(self.cuda_stream) if self.device.type == 'cuda' else torch.no_grad():
+                with torch.no_grad():
+                    if self.use_amp and self.device.type == 'cuda':
+                        with torch.autocast(device_type='cuda', dtype=torch.float16):
+                            outputs = self.model(**processed_inputs)
+                    else:
+                        outputs = self.model(**processed_inputs)
+
+            inference_time = time.time() - inference_start
+
+            # Postprocessing
+            postprocess_start = time.time()
+            detections = self.postprocess_outputs(outputs, image.shape[:2], confidence_threshold)
+            postprocess_time = time.time() - postprocess_start
+
+            # Update performance stats
+            total_time = time.time() - start_time
+            self.update_performance_stats(inference_time, len(detections), True)
+
+            return DetectionResult(
+                detections=detections,
+                frame_id=kwargs.get('frame_id', 0),
+                timestamp=start_time,
+                preprocessing_time=preprocess_time,
+                inference_time=inference_time,
+                postprocessing_time=postprocess_time,
+                model_name=self.model_info.model_name,
+                model_version=self.model_info.model_version,
+                frame_width=image.shape[1],
+                frame_height=image.shape[0],
+                fps=1.0 / total_time if total_time > 0 else 0.0,
+                success=True,
+                metadata={'text_prompt': text_prompt}
+            )
+
+        except Exception as e:
+            self.logger.error(f"DETR detection failed: {e}")
+            self.update_performance_stats(0, 0, False)
+
+            return DetectionResult(
+                detections=[],
+                frame_id=kwargs.get('frame_id', 0),
+                timestamp=start_time,
+                success=False,
+                error_message=str(e),
+                model_name=self.model_info.model_name
+            )
+        """
+        Perform CUDA-accelerated DETR object detection.
+
+        Args:
+            image: Input image as numpy array
+            **kwargs: Additional detection parameters
+
+        Returns:
+            DetectionResult with detected objects
+        """
+        start_time = time.time()
+
+        # Validate input
+        if not self.validate_image(image):
+            return DetectionResult(
+                detections=[],
+                frame_id=kwargs.get('frame_id', 0),
+                timestamp=start_time,
+                success=False,
+                error_message="Invalid input image",
+                model_name=self.model_info.model_name
+            )
+
+        if not self.is_loaded:
+            return DetectionResult(
+                detections=[],
+                frame_id=kwargs.get('frame_id', 0),
+                timestamp=start_time,
+                success=False,
+                error_message="Model not loaded",
+                model_name=self.model_info.model_name
+            )
+
+        try:
+            # Extract parameters
+            confidence_threshold = kwargs.get('confidence_threshold', self.model_info.confidence_threshold)
+            text_prompt = kwargs.get('text_prompt', self.current_prompt)
+
+            # Preprocessing
+            preprocess_start = time.time()
+            processed_inputs = self.preprocess_image(image, text_prompt)
             preprocess_time = time.time() - preprocess_start
 
             # Inference
@@ -384,12 +563,13 @@ class DETRDetector(BaseDetector):
                 model_name=self.model_info.model_name
             )
 
-    def preprocess_image(self, image: np.ndarray) -> Dict[str, torch.Tensor]:
+    def preprocess_image(self, image: np.ndarray, text_prompt: str = None) -> Dict[str, torch.Tensor]:
         """
         CUDA-accelerated image preprocessing for DETR.
 
         Args:
             image: Input image (H, W, C) in BGR format
+            text_prompt: Text prompt for Grounding DINO (optional)
 
         Returns:
             Dictionary with processed tensors
@@ -404,7 +584,10 @@ class DETRDetector(BaseDetector):
         pil_image = Image.fromarray(image_rgb)
 
         # Use HuggingFace processor for optimal preprocessing
-        inputs = self.processor(images=pil_image, return_tensors="pt")
+        if self.is_grounding_dino and text_prompt:
+            inputs = self.processor(images=pil_image, text=text_prompt, return_tensors="pt")
+        else:
+            inputs = self.processor(images=pil_image, return_tensors="pt")
 
         # Move to device efficiently
         if self.device.type == 'cuda':
@@ -444,10 +627,11 @@ class DETRDetector(BaseDetector):
             if not keep.any():
                 return detections
 
-            # Get valid predictions
-            valid_boxes = pred_boxes[0][keep]  # Remove batch dimension
-            valid_probs = max_probs[0][keep]
-            valid_classes = pred_classes[0][keep]
+            # Get valid predictions (handle batch dimension properly)
+            keep_mask = keep[0]  # Remove batch dimension from mask
+            valid_boxes = pred_boxes[0][keep_mask]  # Remove batch dimension
+            valid_probs = max_probs[0][keep_mask]
+            valid_classes = pred_classes[0][keep_mask]
 
             # Convert to CPU for processing
             valid_boxes = valid_boxes.cpu().numpy()
@@ -518,159 +702,17 @@ class DETRDetector(BaseDetector):
 
         return detections
 
-    def detect_batch(self, images: List[np.ndarray], **kwargs) -> List[DetectionResult]:
-        """
-        CUDA-accelerated batch detection for multiple images with DETR.
+    def update_text_prompt(self, new_prompt: str):
+        """Update the current text prompt for Grounding DINO."""
+        if self.is_grounding_dino:
+            self.current_prompt = new_prompt
+            self.logger.info(f"Updated text prompt: {new_prompt}")
+        else:
+            self.logger.warning("Text prompts only supported for Grounding DINO variant")
 
-        Args:
-            images: List of input images
-            **kwargs: Detection parameters
-
-        Returns:
-            List of DetectionResult objects
-        """
-        if not images:
-            return []
-
-        start_time = time.time()
-
-        try:
-            # Convert images to PIL format
-            pil_images = []
-            valid_indices = []
-
-            for i, image in enumerate(images):
-                if self.validate_image(image):
-                    # Convert BGR to RGB if needed
-                    if len(image.shape) == 3 and image.shape[2] == 3:
-                        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                    else:
-                        image_rgb = image
-
-                    pil_images.append(Image.fromarray(image_rgb))
-                    valid_indices.append(i)
-
-            if not pil_images:
-                return [DetectionResult(detections=[], frame_id=0, timestamp=start_time,
-                                      success=False, error_message="No valid images in batch")]
-
-            # Batch preprocessing
-            inputs = self.processor(images=pil_images, return_tensors="pt", padding=True)
-
-            # Move to device
-            if self.device.type == 'cuda':
-                inputs = {k: v.to(self.device, non_blocking=True) for k, v in inputs.items()}
-
-            # Batch inference
-            with torch.cuda.stream(self.cuda_stream) if self.device.type == 'cuda' else torch.no_grad():
-                with torch.no_grad():
-                    if self.use_amp and self.device.type == 'cuda':
-                        with torch.autocast(device_type='cuda', dtype=torch.float16):
-                            outputs = self.model(**inputs)
-                    else:
-                        outputs = self.model(**inputs)
-
-            # Process results for each image
-            results = []
-            confidence_threshold = kwargs.get('confidence_threshold', self.model_info.confidence_threshold)
-
-            for i, (valid_idx, original_image) in enumerate(zip(valid_indices, images)):
-                # Extract outputs for this image
-                image_logits = outputs.logits[i:i+1]  # Keep batch dimension
-                image_boxes = outputs.pred_boxes[i:i+1]
-
-                # Create outputs object for single image
-                from types import SimpleNamespace
-                single_outputs = SimpleNamespace()
-                single_outputs.logits = image_logits
-                single_outputs.pred_boxes = image_boxes
-
-                # Postprocess
-                detections = self.postprocess_outputs(single_outputs, original_image.shape[:2], confidence_threshold)
-
-                result = DetectionResult(
-                    detections=detections,
-                    frame_id=kwargs.get('frame_id', valid_idx),
-                    timestamp=start_time,
-                    model_name=self.model_info.model_name,
-                    frame_width=original_image.shape[1],
-                    frame_height=original_image.shape[0],
-                    success=True
-                )
-
-                results.append(result)
-
-            return results
-
-        except Exception as e:
-            self.logger.error(f"DETR batch processing failed: {e}")
-            return [DetectionResult(detections=[], frame_id=0, timestamp=start_time,
-                                  success=False, error_message=str(e))]
-
-    def optimize_attention_mechanism(self):
-        """Apply attention-specific optimizations for transformer models."""
-        if self.device.type == 'cuda' and self.model:
-            try:
-                # Enable flash attention if available (PyTorch 2.0+)
-                if hasattr(torch.nn.functional, 'scaled_dot_product_attention'):
-                    # Enable optimized attention
-                    torch.backends.cuda.enable_flash_sdp(True)
-                    self.logger.info("Flash attention enabled for DETR")
-
-                # Optimize transformer layers
-                for module in self.model.modules():
-                    if hasattr(module, 'enable_flash_attention'):
-                        module.enable_flash_attention()
-
-            except Exception as e:
-                self.logger.warning(f"Attention optimization failed: {e}")
-
-    def get_attention_maps(self, image: np.ndarray) -> Optional[torch.Tensor]:
-        """
-        Extract attention maps from DETR for visualization.
-
-        Args:
-            image: Input image
-
-        Returns:
-            Attention maps tensor or None if extraction failed
-        """
-        if not self.is_loaded:
-            return None
-
-        try:
-            # Preprocess image
-            inputs = self.preprocess_image(image)
-
-            # Forward pass with attention output
-            with torch.no_grad():
-                outputs = self.model(**inputs, output_attentions=True)
-
-            # Extract attention weights
-            if hasattr(outputs, 'attentions') and outputs.attentions:
-                # Return last layer attention maps
-                return outputs.attentions[-1]
-
-        except Exception as e:
-            self.logger.error(f"Failed to extract attention maps: {e}")
-
-        return None
-
-    def get_gpu_memory_usage(self) -> Dict[str, float]:
-        """Get current GPU memory usage for DETR model."""
-        if self.device.type == 'cuda':
-            allocated = torch.cuda.memory_allocated(self.device) / 1024**3  # GB
-            reserved = torch.cuda.memory_reserved(self.device) / 1024**3   # GB
-            total = torch.cuda.get_device_properties(self.device).total_memory / 1024**3
-
-            return {
-                'allocated_gb': allocated,
-                'reserved_gb': reserved,
-                'total_gb': total,
-                'utilization_percent': (allocated / total) * 100,
-                'transformer_optimized': True
-            }
-        return {}
+    def get_current_prompt(self) -> str:
+        """Get the current text prompt."""
+        return self.current_prompt
 
     def cleanup(self):
         """Clean up CUDA resources and DETR model."""
