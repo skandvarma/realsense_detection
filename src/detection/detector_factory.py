@@ -118,7 +118,7 @@ class DetectorFactory:
                 # DETR uses HuggingFace models, no local files needed
                 model_path = model_config.get('model_path', 'models/detr/')
                 weights_path = ""  # Not used for HuggingFace models
-                model_name_hf = model_config.get('model_name', 'facebook/detr-resnet-50')
+                # model_name_hf = model_config.get('model_name', 'facebook/detr-resnet-50')
             else:
                 # YOLO uses local files
                 model_path = model_config.get('model_path', 'models/')

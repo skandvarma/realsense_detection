@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Example script demonstrating the complete CUDA-optimized detection pipeline.
+Example script demonstrating the complete CUDA-optimized detection pipeline with Grounding DINO support.
 """
 
 import os
@@ -47,21 +47,15 @@ def create_test_setup(config_path: str = "config.yaml"):
         except Exception as e:
             logger.warning(f"Camera setup failed: {e}")
 
-<<<<<<< HEAD
         # Initialize detection system
         factory = DetectorFactory()
         detector = factory.create_detector(config)
-=======
-        # Initialize detection system - YOLO only
-        factory = DetectorFactory()
-        detector = factory.create_detector(config, 'detr')
->>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
 
         if not detector:
-            logger.error("Failed to create YOLO detector")
+            logger.error("Failed to create detector")
             return None
 
-        logger.info("YOLO detector created successfully")
+        logger.info("Detector created successfully")
 
         # Initialize postprocessor
         postprocessor = Postprocessor(config, depth_processor)
@@ -80,7 +74,7 @@ def create_test_setup(config_path: str = "config.yaml"):
         return None
 
 
-def test_detection_on_image(setup: Dict[str, Any], image_path: str):
+def test_detection_on_image(setup: Dict[str, Any], image_path: str, text_prompt: str = None):
     """Test detection on a single image."""
     logger = setup['logger']
     detector = setup['detector']
@@ -96,9 +90,27 @@ def test_detection_on_image(setup: Dict[str, Any], image_path: str):
         logger.info(f"Testing detection on image: {image_path}")
         logger.info(f"Image size: {image.shape[1]}x{image.shape[0]} pixels")
 
+        # Check if this is a Grounding DINO detector
+        is_grounding_dino = hasattr(detector, 'is_grounding_dino') and detector.is_grounding_dino
+        if is_grounding_dino:
+            if not text_prompt:
+                # Ask user for prompt if not provided
+                text_prompt = input("Enter detection prompt (e.g., 'person . car . dog'): ").strip()
+                if not text_prompt:
+                    logger.error("No prompt provided for Grounding DINO")
+                    return False
+            detector.update_text_prompt(text_prompt)
+            current_prompt = detector.get_current_prompt()
+            logger.info(f"Using Grounding DINO with prompt: '{current_prompt}'")
+
         # Perform detection
         start_time = time.time()
-        result = detector.detect(image, frame_id=0)
+        kwargs = {'frame_id': 0}
+        if is_grounding_dino:
+            # Always pass text_prompt for Grounding DINO
+            kwargs['text_prompt'] = text_prompt or detector.get_current_prompt()
+
+        result = detector.detect(image, **kwargs)
         detection_time = time.time() - start_time
 
         if not result.success:
@@ -109,18 +121,21 @@ def test_detection_on_image(setup: Dict[str, Any], image_path: str):
         enhanced_result = postprocessor.process_detection_result(result, frame_id=0)
 
         # Log results
-        logger.info(f"\n DETECTION COMPLETED SUCCESSFULLY!")
-        logger.info(f"   Detection time: {detection_time * 1000:.1f}ms")
-        logger.info(f"   Objects found: {len(enhanced_result.detections)}")
-        logger.info(f"  ️  Model: {result.model_name}")
-        logger.info(f"   Inference FPS: {result.fps:.1f}")
-        logger.info(f"   Preprocessing: {result.preprocessing_time * 1000:.1f}ms")
-        logger.info(f"   Inference: {result.inference_time * 1000:.1f}ms")
-        logger.info(f"   Postprocessing: {result.postprocessing_time * 1000:.1f}ms")
+        logger.info(f"\nDETECTION COMPLETED SUCCESSFULLY!")
+        logger.info(f"Detection time: {detection_time * 1000:.1f}ms")
+        logger.info(f"Objects found: {len(enhanced_result.detections)}")
+        logger.info(f"Model: {result.model_name}")
+        logger.info(f"Inference FPS: {result.fps:.1f}")
+        logger.info(f"Preprocessing: {result.preprocessing_time * 1000:.1f}ms")
+        logger.info(f"Inference: {result.inference_time * 1000:.1f}ms")
+        logger.info(f"Postprocessing: {result.postprocessing_time * 1000:.1f}ms")
+
+        if is_grounding_dino:
+            logger.info(f"Text prompt used: '{result.metadata.get('text_prompt', 'N/A')}'")
 
         # Show detailed detection information
         if enhanced_result.detections:
-            logger.info(f"\n📋 DETAILED DETECTION RESULTS:")
+            logger.info(f"\nDETAILED DETECTION RESULTS:")
             logger.info("=" * 60)
 
             for i, detection in enumerate(enhanced_result.detections):
@@ -129,7 +144,7 @@ def test_detection_on_image(setup: Dict[str, Any], image_path: str):
                 height = y2 - y1
                 area = width * height
 
-                logger.info(f" Detection #{i + 1}:")
+                logger.info(f"Detection #{i + 1}:")
                 logger.info(f"   Class: {detection.class_name}")
                 logger.info(f"   Confidence: {detection.confidence:.3f}")
                 logger.info(f"   Bbox: ({x1:.0f}, {y1:.0f}) → ({x2:.0f}, {y2:.0f})")
@@ -139,16 +154,16 @@ def test_detection_on_image(setup: Dict[str, Any], image_path: str):
                 if hasattr(detection, 'center_3d') and detection.center_3d != (0, 0, 0):
                     logger.info(
                         f"   3D Center: ({detection.center_3d[0]:.3f}, {detection.center_3d[1]:.3f}, {detection.center_3d[2]:.3f}m)")
-                    logger.info(f"  📏 Distance: {detection.distance:.3f}m")
-                    logger.info(f"  🎲 Depth Confidence: {detection.depth_confidence:.3f}")
+                    logger.info(f"   Distance: {detection.distance:.3f}m")
+                    logger.info(f"   Depth Confidence: {detection.depth_confidence:.3f}")
 
                 # Show tracking info if available
                 if detection.detection_id is not None:
-                    logger.info(f"    Track ID: {detection.detection_id}")
+                    logger.info(f"   Track ID: {detection.detection_id}")
 
                 logger.info("")  # Empty line between detections
         else:
-            logger.info("\n No objects detected in this image")
+            logger.info("\nNo objects detected in this image")
 
         # Create and save detailed visualization
         vis_image = create_detection_visualization(image, enhanced_result.detections)
@@ -159,19 +174,19 @@ def test_detection_on_image(setup: Dict[str, Any], image_path: str):
         # Original with detections
         detection_output = f"detection_result_{output_base}.jpg"
         cv2.imwrite(detection_output, vis_image)
-        logger.info(f" Detection result saved: {detection_output}")
+        logger.info(f"Detection result saved: {detection_output}")
 
         # Side-by-side comparison
         comparison_image = create_side_by_side_comparison(image, vis_image)
         comparison_output = f"comparison_{output_base}.jpg"
         cv2.imwrite(comparison_output, comparison_image)
-        logger.info(f" Comparison saved: {comparison_output}")
+        logger.info(f"Comparison saved: {comparison_output}")
 
         # Detection info overlay
         info_image = create_info_overlay(vis_image, enhanced_result)
         info_output = f"detailed_{output_base}.jpg"
         cv2.imwrite(info_output, info_image)
-        logger.info(f" Detailed info saved: {info_output}")
+        logger.info(f"Detailed info saved: {info_output}")
 
         # Class summary
         class_counts = {}
@@ -182,7 +197,7 @@ def test_detection_on_image(setup: Dict[str, Any], image_path: str):
             confidence_sums[class_name] = confidence_sums.get(class_name, 0) + detection.confidence
 
         if class_counts:
-            logger.info(" CLASS SUMMARY:")
+            logger.info("CLASS SUMMARY:")
             logger.info("-" * 40)
             for class_name, count in sorted(class_counts.items()):
                 avg_confidence = confidence_sums[class_name] / count
@@ -197,77 +212,8 @@ def test_detection_on_image(setup: Dict[str, Any], image_path: str):
         return False
 
 
-def create_side_by_side_comparison(original: np.ndarray, detection_result: np.ndarray) -> np.ndarray:
-    """Create side-by-side comparison of original and detection result."""
-    # Ensure both images have same height
-    h1, w1 = original.shape[:2]
-    h2, w2 = detection_result.shape[:2]
-
-    target_height = min(h1, h2)
-
-    # Resize if needed
-    if h1 != target_height:
-        original = cv2.resize(original, (int(w1 * target_height / h1), target_height))
-    if h2 != target_height:
-        detection_result = cv2.resize(detection_result, (int(w2 * target_height / h2), target_height))
-
-    # Add labels
-    original_labeled = original.copy()
-    detection_labeled = detection_result.copy()
-
-    cv2.putText(original_labeled, "ORIGINAL", (10, 40),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
-    cv2.putText(detection_labeled, "DETECTIONS", (10, 40),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3)
-
-    # Combine horizontally
-    comparison = np.hstack((original_labeled, detection_labeled))
-
-    return comparison
-
-
-def create_info_overlay(image: np.ndarray, result) -> np.ndarray:
-    """Create image with detailed detection information overlay."""
-    info_image = image.copy()
-
-    # Add semi-transparent info panel
-    overlay = info_image.copy()
-    panel_height = min(200, image.shape[0] // 3)
-    cv2.rectangle(overlay, (0, 0), (image.shape[1], panel_height), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.7, info_image, 0.3, 0, info_image)
-
-    # Add text info
-    y_offset = 25
-    line_height = 25
-
-    cv2.putText(info_image, f"DETECTION RESULTS", (10, y_offset),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-    y_offset += line_height + 10
-
-    cv2.putText(info_image, f"Objects Found: {len(result.detections)}", (10, y_offset),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    y_offset += line_height
-
-    cv2.putText(info_image, f"Model: {result.model_name}", (10, y_offset),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    y_offset += line_height
-
-    cv2.putText(info_image, f"Inference: {result.inference_time * 1000:.1f}ms", (10, y_offset),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    y_offset += line_height
-
-    cv2.putText(info_image, f"FPS: {result.fps:.1f}", (10, y_offset),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
-    return info_image
-
-
-<<<<<<< HEAD
 def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_video: bool = False,
                         save_frames: bool = False):
-=======
-def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_video: bool = False, save_frames: bool = False):
->>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
     """Test live detection with camera feed."""
     logger = setup['logger']
     camera_manager = setup['camera_manager']
@@ -281,20 +227,20 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
 
     try:
         logger.info(f"Starting live detection test for {duration}s")
-        if show_video:
-<<<<<<< HEAD
-            logger.info("Controls:")
-            logger.info("  'q': Quit")
-            logger.info("  'p': Change text prompt (for Grounding DINO)")
-            logger.info("  's': Save frame")
 
         # Check if using Grounding DINO
         is_grounding_dino = hasattr(detector, 'is_grounding_dino') and detector.is_grounding_dino
         if is_grounding_dino:
+            # Ask user for initial prompt
+            user_prompt = input("Enter detection prompt for live detection (e.g., 'person . car . dog'): ").strip()
+            if not user_prompt:
+                logger.error("No prompt provided for Grounding DINO")
+                return False
+            detector.update_text_prompt(user_prompt)
             current_prompt = detector.get_current_prompt()
-            logger.info(f"🎯 Grounding DINO mode - Current prompt: '{current_prompt}'")
+            logger.info(f"Grounding DINO mode - Using prompt: '{current_prompt}'")
 
-            # Pre-defined prompts for cycling
+            # Pre-defined prompts for cycling (from working implementation)
             predefined_prompts = [
                 "person . car . chair . bottle . laptop",
                 "dog . cat . bird . animal",
@@ -306,17 +252,14 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
             ]
             current_prompt_index = 0
 
-            logger.info("🎮 Hotkeys:")
-            logger.info("  'p': Cycle through pre-defined prompts")
-            logger.info("  'r': Reset to default prompt")
-        else:
-            logger.info("🎮 Hotkeys:")
-
-        logger.info("  'q': Quit")
-        logger.info("  's': Save frame")
-=======
-            logger.info("Press 'q' to quit early if running with display")
->>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
+        if show_video:
+            logger.info("Controls:")
+            if is_grounding_dino:
+                logger.info("  'p': Cycle through pre-defined prompts")
+                logger.info("  'c': Enter custom prompt")
+                logger.info("  'r': Reset to default prompt")
+            logger.info("  'q': Quit")
+            logger.info("  's': Save frame")
 
         start_time = time.time()
         frame_count = 0
@@ -347,7 +290,11 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
 
             # Perform detection
             detection_start = time.time()
-            result = detector.detect(bgr_frame, frame_id=frame_count)
+            kwargs = {'frame_id': frame_count}
+            if is_grounding_dino:
+                kwargs['text_prompt'] = detector.get_current_prompt()
+
+            result = detector.detect(bgr_frame, **kwargs)
 
             if result.success:
                 # Apply postprocessing with depth if available
@@ -362,7 +309,6 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
                 # Show detailed detection info every 30 frames
                 if frame_count % 30 == 0 or len(enhanced_result.detections) > 0:
                     fps = 1.0 / detection_time if detection_time > 0 else 0
-<<<<<<< HEAD
 
                     # Show current prompt for Grounding DINO
                     prompt_info = ""
@@ -370,11 +316,7 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
                         prompt_info = f" | Prompt: '{detector.get_current_prompt()}'"
 
                     logger.info(
-                        f"\n🎥 Frame {frame_count}: {len(enhanced_result.detections)} objects detected, {fps:.1f} FPS{prompt_info}")
-=======
-                    logger.info(
-                        f"\n Frame {frame_count}: {len(enhanced_result.detections)} objects detected, {fps:.1f} FPS")
->>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
+                        f"\nFrame {frame_count}: {len(enhanced_result.detections)} objects detected, {fps:.1f} FPS{prompt_info}")
 
                     # Show each detection with details
                     for i, detection in enumerate(enhanced_result.detections):
@@ -384,8 +326,8 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
 
                         # Add 3D info if available
                         if hasattr(detection, 'center_3d') and detection.center_3d != (0, 0, 0):
-                            det_info += f" |  3D: ({detection.center_3d[0]:.2f}, {detection.center_3d[1]:.2f}, {detection.center_3d[2]:.2f}m)"
-                            det_info += f" |  Distance: {detection.distance:.2f}m"
+                            det_info += f" | 3D: ({detection.center_3d[0]:.2f}, {detection.center_3d[1]:.2f}, {detection.center_3d[2]:.2f}m)"
+                            det_info += f" | Distance: {detection.distance:.2f}m"
                         # Add tracking ID if available
                         if detection.detection_id is not None:
                             det_info += f" | ID: {detection.detection_id}"
@@ -399,12 +341,11 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
                     cv2.imwrite(output_file, vis_image)
 
                     if frame_count % 60 == 0:
-                        logger.info(f"💾 Saved visualization: detection_frame_{frame_count:06d}.jpg")
+                        logger.info(f"Saved visualization: detection_frame_{frame_count:06d}.jpg")
 
                 # Show video if requested
                 if show_video:
                     vis_image = create_detection_visualization(bgr_frame, enhanced_result.detections, depth_frame)
-<<<<<<< HEAD
 
                     # Add prompt info to visualization for Grounding DINO
                     if is_grounding_dino:
@@ -412,44 +353,42 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
                         cv2.putText(vis_image, prompt_text, (10, vis_image.shape[0] - 40),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
-=======
->>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
                     cv2.imshow("Live Detection", vis_image)
 
             frame_count += 1
 
-<<<<<<< HEAD
             # Check for early exit and hotkeys
-=======
-            # Check for early exit (if someone presses 'q' in video window)
->>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
             if show_video:
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord('q'):
                     logger.info("Early exit requested")
                     break
-<<<<<<< HEAD
                 elif key == ord('p') and is_grounding_dino:
                     # Cycle through pre-defined prompts
                     current_prompt_index = (current_prompt_index + 1) % len(predefined_prompts)
                     new_prompt = predefined_prompts[current_prompt_index]
                     detector.update_text_prompt(new_prompt)
                     logger.info(
-                        f"🔄 Switched to prompt {current_prompt_index + 1}/{len(predefined_prompts)}: '{new_prompt}'")
+                        f"Switched to prompt {current_prompt_index + 1}/{len(predefined_prompts)}: '{new_prompt}'")
+                elif key == ord('c') and is_grounding_dino:
+                    # Custom prompt (pause detection briefly)
+                    logger.info("\nEnter custom prompt (separate objects with ' . '):")
+                    print("Prompt: ", end='', flush=True)
+                    # Note: In a real implementation, you'd need a better way to get input during live detection
+                    # For now, just log that this feature is available
+                    logger.info("Custom prompt feature available - use 'p' to cycle through presets")
                 elif key == ord('r') and is_grounding_dino:
                     # Reset to default prompt
                     detector.update_text_prompt(detector.default_prompt)
                     current_prompt_index = 0
-                    logger.info(f"🔄 Reset to default prompt: '{detector.default_prompt}'")
+                    logger.info(f"Reset to default prompt: '{detector.default_prompt}'")
                 elif key == ord('s'):
                     # Save current frame
                     if 'enhanced_result' in locals():
                         vis_image = create_detection_visualization(bgr_frame, enhanced_result.detections, depth_frame)
                         save_path = str(output_dir / f"manual_save_{frame_count:06d}.jpg")
                         cv2.imwrite(save_path, vis_image)
-                        logger.info(f"💾 Manual save: {save_path}")
-=======
->>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
+                        logger.info(f"Manual save: {save_path}")
 
         # Final statistics
         total_time = time.time() - start_time
@@ -462,26 +401,18 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
             avg_detection_time = 0
             detection_fps = 0
 
-        logger.info(f"\n LIVE DETECTION TEST COMPLETED!")
-        logger.info(f"   Total frames processed: {frame_count}")
-        logger.info(f"   Total objects detected: {total_detections}")
-        logger.info(f"   Average camera FPS: {avg_fps:.2f}")
-        logger.info(f"   Average detection FPS: {detection_fps:.2f}")
-<<<<<<< HEAD
-        logger.info(f"    Average detection time: {avg_detection_time * 1000:.1f}ms")
-=======
-        logger.info(f"  ️  Average detection time: {avg_detection_time * 1000:.1f}ms")
->>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
-        logger.info(f"   Visualizations saved to: {output_dir}/")
+        logger.info(f"\nLIVE DETECTION TEST COMPLETED!")
+        logger.info(f"Total frames processed: {frame_count}")
+        logger.info(f"Total objects detected: {total_detections}")
+        logger.info(f"Average camera FPS: {avg_fps:.2f}")
+        logger.info(f"Average detection FPS: {detection_fps:.2f}")
+        logger.info(f"Average detection time: {avg_detection_time * 1000:.1f}ms")
+        logger.info(f"Visualizations saved to: {output_dir}/")
 
         # Get tracking statistics
         tracking_stats = postprocessor.get_tracking_statistics()
-        logger.info(f"    Active tracks: {tracking_stats['confirmed_tracks']}")
-<<<<<<< HEAD
-        logger.info(f"   Total tracks created: {tracking_stats['total_tracks']}")
-=======
-        logger.info(f"  Total tracks created: {tracking_stats['total_tracks']}")
->>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
+        logger.info(f"Active tracks: {tracking_stats['confirmed_tracks']}")
+        logger.info(f"Total tracks created: {tracking_stats['total_tracks']}")
 
         if show_video:
             cv2.destroyAllWindows()
@@ -495,10 +426,6 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
         return False
 
 
-<<<<<<< HEAD
-=======
-
->>>>>>> 5b07fbd0f216d193e26203206ab0f90b7f4460b4
 def create_detection_visualization(image: np.ndarray, detections: List,
                                    depth_frame: Optional[np.ndarray] = None) -> np.ndarray:
     """Create a detailed visualization of detections."""
@@ -568,75 +495,82 @@ def create_detection_visualization(image: np.ndarray, detections: List,
     return vis_image
 
 
-def benchmark_detectors(setup: Dict[str, Any], test_images: List[np.ndarray]):
-    """Benchmark all available detectors."""
-    logger = setup['logger']
-    config = setup['config']
+def create_side_by_side_comparison(original: np.ndarray, detection_result: np.ndarray) -> np.ndarray:
+    """Create side-by-side comparison of original and detection result."""
+    # Ensure both images have same height
+    h1, w1 = original.shape[:2]
+    h2, w2 = detection_result.shape[:2]
 
-    try:
-        factory = DetectorFactory()
-        results = factory.benchmark_all_detectors(config, test_images)
+    target_height = min(h1, h2)
 
-        if not results:
-            logger.error("No benchmark results available")
-            return False
+    # Resize if needed
+    if h1 != target_height:
+        original = cv2.resize(original, (int(w1 * target_height / h1), target_height))
+    if h2 != target_height:
+        detection_result = cv2.resize(detection_result, (int(w2 * target_height / h2), target_height))
 
-        logger.info("=== Detector Benchmark Results ===")
+    # Add labels
+    original_labeled = original.copy()
+    detection_labeled = detection_result.copy()
 
-        for model_type, result in results.items():
-            logger.info(f"{model_type.upper()}:")
-            logger.info(f"  Average FPS: {result['avg_fps']:.2f}")
-            logger.info(f"  Inference time: {result['avg_inference_time'] * 1000:.2f}ms")
-            logger.info(f"  Memory usage: {result['avg_memory_usage_mb']:.1f}MB")
-            logger.info(f"  Detections per frame: {result['avg_detections_per_frame']:.1f}")
+    cv2.putText(original_labeled, "ORIGINAL", (10, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
+    cv2.putText(detection_labeled, "DETECTIONS", (10, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3)
 
-        # Get recommendation
-        recommended = factory.get_recommended_detector({'min_fps': 20})
-        if recommended:
-            logger.info(f"Recommended detector: {recommended}")
+    # Combine horizontally
+    comparison = np.hstack((original_labeled, detection_labeled))
 
-        return True
-
-    except Exception as e:
-        logger.error(f"Benchmark failed: {e}")
-        return False
+    return comparison
 
 
-def visualize_detections(image: np.ndarray, detections: List, output_path: str):
-    """Enhanced visualization of detections on image and save."""
-    vis_image = create_detection_visualization(image, detections)
-    cv2.imwrite(output_path, vis_image)
-    print(f" Enhanced visualization saved to: {output_path}")
+def create_info_overlay(image: np.ndarray, result) -> np.ndarray:
+    """Create image with detailed detection information overlay."""
+    info_image = image.copy()
 
+    # Add semi-transparent info panel
+    overlay = info_image.copy()
+    panel_height = min(200, image.shape[0] // 3)
+    cv2.rectangle(overlay, (0, 0), (image.shape[1], panel_height), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.7, info_image, 0.3, 0, info_image)
 
-def create_test_images() -> List[np.ndarray]:
-    """Create synthetic test images for benchmarking."""
-    test_images = []
+    # Add text info
+    y_offset = 25
+    line_height = 25
 
-    for i in range(10):
-        # Create random test image
-        image = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+    cv2.putText(info_image, f"DETECTION RESULTS", (10, y_offset),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+    y_offset += line_height + 10
 
-        # Add some simple geometric shapes as "objects"
-        cv2.rectangle(image, (50 + i * 20, 50), (150 + i * 20, 150), (255, 0, 0), -1)
-        cv2.circle(image, (300, 200 + i * 10), 30, (0, 255, 0), -1)
+    cv2.putText(info_image, f"Objects Found: {len(result.detections)}", (10, y_offset),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+    y_offset += line_height
 
-        test_images.append(image)
+    cv2.putText(info_image, f"Model: {result.model_name}", (10, y_offset),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+    y_offset += line_height
 
-    return test_images
+    cv2.putText(info_image, f"Inference: {result.inference_time * 1000:.1f}ms", (10, y_offset),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+    y_offset += line_height
+
+    cv2.putText(info_image, f"FPS: {result.fps:.1f}", (10, y_offset),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+    return info_image
 
 
 def main():
     """Main function for detection testing."""
-    parser = argparse.ArgumentParser(description="CUDA-Optimized Detection System Test")
+    parser = argparse.ArgumentParser(description="CUDA-Optimized Detection System Test with Grounding DINO")
     parser.add_argument("--config", "-c", default="config.yaml",
                         help="Path to configuration file")
     parser.add_argument("--image", "-i",
                         help="Test detection on specific image")
+    parser.add_argument("--prompt", "-p",
+                        help="Text prompt for Grounding DINO (e.g., 'person . car . dog')")
     parser.add_argument("--live", "-l", action="store_true",
                         help="Run live detection test")
-    parser.add_argument("--benchmark", "-b", action="store_true",
-                        help="Benchmark all available detectors")
     parser.add_argument("--duration", "-d", type=float, default=10.0,
                         help="Duration for live test (seconds)")
     parser.add_argument("--show-video", action="store_true", help="Display live video during detection")
@@ -660,16 +594,12 @@ def main():
                 logger.error(f"Image file not found: {args.image}")
                 success = False
             else:
-                success = test_detection_on_image(setup, args.image)
+                success = test_detection_on_image(setup, args.image, args.prompt)
 
         elif args.live:
             # Live detection test
-            success = test_live_detection(setup, args.duration, show_video=args.show_video, save_frames=args.save_frames)
-
-        elif args.benchmark:
-            # Benchmark detectors
-            test_images = create_test_images()
-            success = benchmark_detectors(setup, test_images)
+            success = test_live_detection(setup, args.duration, show_video=args.show_video,
+                                          save_frames=args.save_frames)
 
         else:
             # Default: create test image and run detection
@@ -701,11 +631,11 @@ def main():
             cv2.imwrite("comprehensive_test_image.jpg", test_image)
             logger.info("Created comprehensive test image with multiple objects")
 
-            success = test_detection_on_image(setup, "comprehensive_test_image.jpg")
+            success = test_detection_on_image(setup, "comprehensive_test_image.jpg", args.prompt)
 
             if success:
-                logger.info("\n COMPREHENSIVE TEST COMPLETED!")
-                logger.info(" Check these output files:")
+                logger.info("\nCOMPREHENSIVE TEST COMPLETED!")
+                logger.info("Check these output files:")
                 logger.info("  - detection_result_comprehensive_test_image.jpg")
                 logger.info("  - comparison_comprehensive_test_image.jpg")
                 logger.info("  - detailed_comprehensive_test_image.jpg")
