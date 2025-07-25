@@ -63,7 +63,7 @@ camera:
 # Object Detection Configuration
 detection:
   # Active Model Selection (switch between 'yolo' or 'detr')
-  active_model: "detr"
+  active_model: "yolo"
 
   # YOLO Model Configurations
   yolo:

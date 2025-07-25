@@ -36,6 +36,8 @@ class BlendMode(Enum):
 class CUDAVisualizationKernels:
     """Collection of CUDA kernels for real-time visualization operations."""
 
+    # IMMEDIATE FIX: Replace the __init__ method in src/integration/cuda_visualization_kernels.py
+
     def __init__(self, device: torch.device, max_width: int = 1920, max_height: int = 1080):
         """
         Initialize CUDA visualization kernels.
@@ -49,12 +51,25 @@ class CUDAVisualizationKernels:
         self.max_width = max_width
         self.max_height = max_height
         self.logger = get_logger("CUDAVisualizationKernels")
+        self.detection_colors = None
+        self.depth_colormap = None
+        self.heatmap_colors = None
 
         # Pre-allocate memory for visualization operations
-        self._preallocate_buffers()
+        try:
+            self._preallocate_buffers()
+        except Exception as e:
+            self.logger.warning(f"Buffer allocation failed: {e}")
+            # Initialize minimal buffers
+            self._initialize_minimal_buffers()
 
         # Color palettes for different visualizations
-        self._initialize_color_palettes()
+        try:
+            self._initialize_color_palettes()
+        except Exception as e:
+            self.logger.warning(f"Color palette initialization failed: {e}")
+            # Initialize basic color palettes
+            self._initialize_basic_palettes()
 
         # Font and text rendering parameters
         self.font_scale = 1.0
@@ -66,6 +81,43 @@ class CUDAVisualizationKernels:
         self.enable_async_operations = True
 
         self.logger.info(f"Initialized CUDA visualization kernels for {max_width}x{max_height}")
+
+    def _initialize_minimal_buffers(self):
+        """Initialize minimal buffers when full allocation fails."""
+        import numpy as np
+
+        # Create minimal CPU buffers as fallback
+        self.rgb_buffer = np.zeros((480, 640, 3), dtype=np.uint8)
+        self.depth_buffer = np.zeros((480, 640), dtype=np.float32)
+        self.overlay_buffer = np.zeros((480, 640, 4), dtype=np.uint8)
+        self.depth_colorized = np.zeros((480, 640, 3), dtype=np.uint8)
+        self.alpha_buffer = np.zeros((480, 640), dtype=np.float32)
+        self.temp_float_buffer = np.zeros((480, 640), dtype=np.float32)
+        self.temp_rgb_buffer = np.zeros((480, 640, 3), dtype=np.uint8)
+        self.mask_buffer = np.zeros((480, 640), dtype=bool)
+
+    def _initialize_basic_palettes(self):
+        """Initialize basic color palettes when full initialization fails."""
+        import numpy as np
+
+        # Simple color palette
+        detection_colors = [
+            [255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0], [255, 0, 255],
+            [0, 255, 255], [128, 0, 0], [0, 128, 0], [0, 0, 128], [128, 128, 0]
+        ]
+
+        self.detection_colors = np.array(detection_colors, dtype=np.uint8)
+
+        # Simple depth colormap
+        colormap = []
+        for i in range(256):
+            r = min(255, i * 2) if i > 128 else 0
+            g = min(255, abs(128 - i) * 2)
+            b = max(0, 255 - i * 2) if i < 128 else 0
+            colormap.append([r, g, b])
+
+        self.depth_colormap = np.array(colormap, dtype=np.uint8)
+        self.heatmap_colors = np.array(colormap, dtype=np.uint8)  # Reuse for simplicity
 
     def _preallocate_buffers(self):
         """Pre-allocate GPU memory for visualization operations."""
@@ -116,6 +168,13 @@ class CUDAVisualizationKernels:
 
         self.logger.debug(f"Pre-allocated {self._get_memory_usage():.1f}MB for visualization")
 
+    """
+    MINIMAL FIX for CUDAVisualizationKernels - only the essential changes needed.
+    """
+
+    # In src/integration/cuda_visualization_kernels.py
+    # Replace the _initialize_color_palettes method with this fixed version:
+
     def _initialize_color_palettes(self):
         """Initialize color palettes for different visualization types."""
         # Detection class colors (20 distinct colors)
@@ -126,12 +185,34 @@ class CUDAVisualizationKernels:
             [255, 0, 128], [128, 0, 255], [0, 128, 255], [192, 192, 192], [128, 128, 128]
         ]
 
-        self.detection_colors = torch.tensor(
-            detection_colors, device=self.device, dtype=torch.uint8
-        )
+        # CRITICAL FIX: Ensure this attribute exists before trying to use it
+        try:
+            self.detection_colors = torch.tensor(
+                detection_colors, device=self.device, dtype=torch.uint8
+            )
+        except Exception as e:
+            # Fallback if GPU not available
+            import numpy as np
+            self.detection_colors = np.array(detection_colors, dtype=np.uint8)
 
         # Depth colormap (similar to JET colormap)
-        self.depth_colormap = self._create_jet_colormap()
+        try:
+            self.depth_colormap = self._create_jet_colormap()
+        except Exception:
+            # Simple fallback colormap
+            import numpy as np
+            colormap = []
+            for i in range(256):
+                # Simple blue to red gradient
+                r = min(255, i * 2)
+                g = min(255, abs(128 - i) * 2)
+                b = max(0, 255 - i * 2)
+                colormap.append([r, g, b])
+
+            try:
+                self.depth_colormap = torch.tensor(colormap, device=self.device, dtype=torch.uint8)
+            except:
+                self.depth_colormap = np.array(colormap, dtype=np.uint8)
 
         # Heatmap colors (for confidence visualization)
         heatmap_colors = []
@@ -149,9 +230,13 @@ class CUDAVisualizationKernels:
                 b = 0
             heatmap_colors.append([r, g, b])
 
-        self.heatmap_colors = torch.tensor(
-            heatmap_colors, device=self.device, dtype=torch.uint8
-        )
+        try:
+            self.heatmap_colors = torch.tensor(
+                heatmap_colors, device=self.device, dtype=torch.uint8
+            )
+        except Exception:
+            import numpy as np
+            self.heatmap_colors = np.array(heatmap_colors, dtype=np.uint8)
 
     def _create_jet_colormap(self) -> torch.Tensor:
         """Create JET colormap for depth visualization."""

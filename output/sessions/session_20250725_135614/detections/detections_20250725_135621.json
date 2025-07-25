@@ -1,0 +1,2070 @@
+[
+  {
+    "timestamp": 1753476974.8626366,
+    "frame_number": 0,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 0,
+      "timestamp": 1753476974.8626366,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476974.873976,
+    "frame_number": 1,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 1,
+      "timestamp": 1753476974.873976,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476974.9222305,
+    "frame_number": 2,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 2,
+      "timestamp": 1753476974.9222305,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476974.995473,
+    "frame_number": 3,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 3,
+      "timestamp": 1753476974.995473,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476975.0558774,
+    "frame_number": 4,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 4,
+      "timestamp": 1753476975.0558774,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476975.1210299,
+    "frame_number": 5,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 5,
+      "timestamp": 1753476975.1210299,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.52734375,
+          "bbox": [
+            366.5,
+            2.375,
+            638.5,
+            388.5
+          ],
+          "position": {
+            "x": 0.42295767960164254,
+            "y": -0.103317202492449,
+            "z": 0.9170000435551628
+          },
+          "distance": 0.9170000435551628
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476975.1877053,
+    "frame_number": 6,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 6,
+      "timestamp": 1753476975.1877053,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.52392578125,
+          "bbox": [
+            367.625,
+            5.34375,
+            638.125,
+            379.34375
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476975.2541933,
+    "frame_number": 7,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 7,
+      "timestamp": 1753476975.2541933,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.54921875,
+          "bbox": [
+            366.6875,
+            4.015625,
+            638.6875,
+            376.890625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476975.3198438,
+    "frame_number": 8,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 8,
+      "timestamp": 1753476975.3198438,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6145703124999999,
+          "bbox": [
+            367.96875,
+            -0.1484375,
+            638.46875,
+            385.8515625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476975.3897207,
+    "frame_number": 9,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 9,
+      "timestamp": 1753476975.3897207,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476975.4573035,
+    "frame_number": 10,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 10,
+      "timestamp": 1753476975.4573035,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.577095703125,
+          "bbox": [
+            366.359375,
+            -0.19921875,
+            639.359375,
+            391.30078125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476975.524318,
+    "frame_number": 11,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 11,
+      "timestamp": 1753476975.524318,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476975.5905378,
+    "frame_number": 12,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 12,
+      "timestamp": 1753476975.5905378,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476975.6574073,
+    "frame_number": 13,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 13,
+      "timestamp": 1753476975.6574073,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476975.7242248,
+    "frame_number": 14,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 14,
+      "timestamp": 1753476975.7242248,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476975.791176,
+    "frame_number": 15,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 15,
+      "timestamp": 1753476975.791176,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476975.8584883,
+    "frame_number": 16,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 16,
+      "timestamp": 1753476975.8584883,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.571310205078125,
+          "bbox": [
+            365.828125,
+            1.58203125,
+            639.328125,
+            390.58203125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476975.9251912,
+    "frame_number": 17,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 17,
+      "timestamp": 1753476975.9251912,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.569677783203125,
+          "bbox": [
+            366.765625,
+            4.26953125,
+            638.765625,
+            383.76953125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476975.9921854,
+    "frame_number": 18,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 18,
+      "timestamp": 1753476975.9921854,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.645176123046875,
+          "bbox": [
+            364.296875,
+            4.46875,
+            639.796875,
+            379.96875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476976.0586483,
+    "frame_number": 19,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 19,
+      "timestamp": 1753476976.0586483,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.653071484375,
+          "bbox": [
+            364.984375,
+            1.703125,
+            638.984375,
+            384.703125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476976.1247432,
+    "frame_number": 20,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 20,
+      "timestamp": 1753476976.1247432,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476976.191795,
+    "frame_number": 21,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 21,
+      "timestamp": 1753476976.191795,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6033623046875,
+          "bbox": [
+            364.734375,
+            3.1875,
+            638.734375,
+            381.6875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476976.258022,
+    "frame_number": 22,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 22,
+      "timestamp": 1753476976.258022,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.61235634765625,
+          "bbox": [
+            365.390625,
+            3.1875,
+            638.390625,
+            379.1875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476976.3250008,
+    "frame_number": 23,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 23,
+      "timestamp": 1753476976.3250008,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.580796484375,
+          "bbox": [
+            363.390625,
+            2.4375,
+            639.390625,
+            379.5625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476976.3888285,
+    "frame_number": 24,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 24,
+      "timestamp": 1753476976.3888285,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.613739892578125,
+          "bbox": [
+            363.21875,
+            2.625,
+            639.21875,
+            379.125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476976.4559402,
+    "frame_number": 25,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 25,
+      "timestamp": 1753476976.4559402,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6046923828125,
+          "bbox": [
+            363.09375,
+            1.2734375,
+            639.09375,
+            382.3984375
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476976.5226738,
+    "frame_number": 26,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 26,
+      "timestamp": 1753476976.5226738,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.605660693359375,
+          "bbox": [
+            360.8125,
+            2.37109375,
+            639.8125,
+            381.37109375
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476976.588279,
+    "frame_number": 27,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 27,
+      "timestamp": 1753476976.588279,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.694273681640625,
+          "bbox": [
+            362.0,
+            3.08203125,
+            638.5,
+            379.58203125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476976.6550496,
+    "frame_number": 28,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 28,
+      "timestamp": 1753476976.6550496,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.593293701171875,
+          "bbox": [
+            361.625,
+            2.90234375,
+            638.625,
+            378.40234375
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476976.7226677,
+    "frame_number": 29,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 29,
+      "timestamp": 1753476976.7226677,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6352470703124999,
+          "bbox": [
+            363.3125,
+            2.90234375,
+            638.3125,
+            377.90234375
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476976.7911584,
+    "frame_number": 30,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 30,
+      "timestamp": 1753476976.7911584,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.656455126953125,
+          "bbox": [
+            362.609375,
+            2.671875,
+            638.609375,
+            377.671875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476976.863825,
+    "frame_number": 31,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 31,
+      "timestamp": 1753476976.863825,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.62722431640625,
+          "bbox": [
+            364.453125,
+            2.921875,
+            637.953125,
+            375.921875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476976.9268875,
+    "frame_number": 32,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 32,
+      "timestamp": 1753476976.9268875,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.5739540039062501,
+          "bbox": [
+            361.71875,
+            1.8125,
+            639.21875,
+            378.3125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476976.9984517,
+    "frame_number": 33,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 33,
+      "timestamp": 1753476976.9984517,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.660181884765625,
+          "bbox": [
+            362.90625,
+            2.15625,
+            638.40625,
+            378.15625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476977.0697465,
+    "frame_number": 34,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 34,
+      "timestamp": 1753476977.0697465,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.673523681640625,
+          "bbox": [
+            362.171875,
+            2.203125,
+            638.671875,
+            378.703125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476977.12479,
+    "frame_number": 35,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 35,
+      "timestamp": 1753476977.12479,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.66643447265625,
+          "bbox": [
+            361.625,
+            2.3125,
+            639.125,
+            378.3125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476977.1953242,
+    "frame_number": 36,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 36,
+      "timestamp": 1753476977.1953242,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6594952636718749,
+          "bbox": [
+            360.125,
+            2.84375,
+            639.125,
+            377.34375
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476977.259666,
+    "frame_number": 37,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 37,
+      "timestamp": 1753476977.259666,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6633865234375,
+          "bbox": [
+            361.59375,
+            3.15625,
+            638.59375,
+            375.65625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476977.3257196,
+    "frame_number": 38,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 38,
+      "timestamp": 1753476977.3257196,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6480943359375,
+          "bbox": [
+            360.28125,
+            1.71875,
+            639.28125,
+            378.71875
+          ],
+          "position": {
+            "x": 0.36462770099804803,
+            "y": -0.10300520825839699,
+            "z": 0.8040000381879508
+          },
+          "distance": 0.8040000381879508
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476977.3986626,
+    "frame_number": 39,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 39,
+      "timestamp": 1753476977.3986626,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.55942939453125,
+          "bbox": [
+            361.640625,
+            3.21875,
+            638.640625,
+            375.71875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476977.4598074,
+    "frame_number": 40,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 40,
+      "timestamp": 1753476977.4598074,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.58651337890625,
+          "bbox": [
+            363.65625,
+            1.71875,
+            638.15625,
+            378.71875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476977.5320363,
+    "frame_number": 41,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 41,
+      "timestamp": 1753476977.5320363,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.727633154296875,
+          "bbox": [
+            362.25,
+            2.703125,
+            639.25,
+            376.703125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476977.604149,
+    "frame_number": 42,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 42,
+      "timestamp": 1753476977.604149,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6759001953125,
+          "bbox": [
+            362.84375,
+            2.171875,
+            638.84375,
+            377.671875
+          ],
+          "position": {
+            "x": 0.18061226514643058,
+            "y": -0.0507339085451806,
+            "z": 0.3960000188089907
+          },
+          "distance": 0.3960000188089907
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476977.6587124,
+    "frame_number": 43,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 43,
+      "timestamp": 1753476977.6587124,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6895387207031249,
+          "bbox": [
+            363.328125,
+            2.265625,
+            638.828125,
+            377.765625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476977.737141,
+    "frame_number": 44,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 44,
+      "timestamp": 1753476977.737141,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.726579150390625,
+          "bbox": [
+            361.953125,
+            2.203125,
+            639.453125,
+            378.703125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476977.8046944,
+    "frame_number": 45,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 45,
+      "timestamp": 1753476977.8046944,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.679861083984375,
+          "bbox": [
+            362.8125,
+            1.296875,
+            638.8125,
+            381.796875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476977.8620894,
+    "frame_number": 46,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 46,
+      "timestamp": 1753476977.8620894,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6643742187499999,
+          "bbox": [
+            362.171875,
+            1.453125,
+            639.171875,
+            383.578125
+          ],
+          "position": {
+            "x": 0.5910946859337728,
+            "y": -0.15602844391919574,
+            "z": 1.296000061556697
+          },
+          "distance": 1.296000061556697
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476977.9391994,
+    "frame_number": 47,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 47,
+      "timestamp": 1753476977.9391994,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.594873291015625,
+          "bbox": [
+            362.09375,
+            -6.609375,
+            639.09375,
+            409.390625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476977.9964855,
+    "frame_number": 48,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 48,
+      "timestamp": 1753476977.9964855,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.65093798828125,
+          "bbox": [
+            363.140625,
+            6.7109375,
+            638.640625,
+            387.7109375
+          ],
+          "position": {
+            "x": 0.3689780871299554,
+            "y": -0.0890661814248761,
+            "z": 0.8090000384254381
+          },
+          "distance": 0.8090000384254381
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476978.0771322,
+    "frame_number": 49,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 49,
+      "timestamp": 1753476978.0771322,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.649327734375,
+          "bbox": [
+            363.71875,
+            -4.58203125,
+            638.71875,
+            412.41796875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476978.1374698,
+    "frame_number": 50,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 50,
+      "timestamp": 1753476978.1374698,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.697237353515625,
+          "bbox": [
+            364.59375,
+            4.10546875,
+            638.59375,
+            400.60546875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476978.208058,
+    "frame_number": 51,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 51,
+      "timestamp": 1753476978.208058,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.563046142578125,
+          "bbox": [
+            365.296875,
+            -5.046875,
+            638.296875,
+            426.953125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476978.2714722,
+    "frame_number": 52,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 52,
+      "timestamp": 1753476978.2714722,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.5964269042968751,
+          "bbox": [
+            364.921875,
+            7.0625,
+            638.921875,
+            403.5625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476978.3259041,
+    "frame_number": 53,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 53,
+      "timestamp": 1753476978.3259041,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476978.3946607,
+    "frame_number": 54,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 54,
+      "timestamp": 1753476978.3946607,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.557576123046875,
+          "bbox": [
+            365.34375,
+            4.328125,
+            638.84375,
+            404.828125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476978.4609578,
+    "frame_number": 55,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 55,
+      "timestamp": 1753476978.4609578,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.55367060546875,
+          "bbox": [
+            366.5625,
+            3.484375,
+            638.5625,
+            402.484375
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476978.534782,
+    "frame_number": 56,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 56,
+      "timestamp": 1753476978.534782,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.61197294921875,
+          "bbox": [
+            366.03125,
+            3.421875,
+            639.03125,
+            402.921875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476978.6031802,
+    "frame_number": 57,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 57,
+      "timestamp": 1753476978.6031802,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6664629882812501,
+          "bbox": [
+            365.265625,
+            2.375,
+            639.265625,
+            401.25
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476978.664186,
+    "frame_number": 58,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 58,
+      "timestamp": 1753476978.664186,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476978.7318668,
+    "frame_number": 59,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 59,
+      "timestamp": 1753476978.7318668,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6167625976562501,
+          "bbox": [
+            365.890625,
+            7.71875,
+            638.890625,
+            385.71875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476978.7951837,
+    "frame_number": 60,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 60,
+      "timestamp": 1753476978.7951837,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6283654296875,
+          "bbox": [
+            364.84375,
+            5.4609375,
+            639.34375,
+            381.9609375
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476978.870466,
+    "frame_number": 61,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 61,
+      "timestamp": 1753476978.870466,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.59819111328125,
+          "bbox": [
+            364.28125,
+            0.86328125,
+            639.28125,
+            389.86328125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476978.9326718,
+    "frame_number": 62,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 62,
+      "timestamp": 1753476978.9326718,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.57846005859375,
+          "bbox": [
+            361.875,
+            3.91015625,
+            639.875,
+            383.91015625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476978.9986885,
+    "frame_number": 63,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 63,
+      "timestamp": 1753476978.9986885,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.665155908203125,
+          "bbox": [
+            366.453125,
+            2.546875,
+            637.453125,
+            383.671875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476979.07188,
+    "frame_number": 64,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 64,
+      "timestamp": 1753476979.07188,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.633378369140625,
+          "bbox": [
+            363.453125,
+            2.9375,
+            639.453125,
+            382.0625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476979.1445403,
+    "frame_number": 65,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 65,
+      "timestamp": 1753476979.1445403,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.567239794921875,
+          "bbox": [
+            365.84375,
+            3.4453125,
+            638.34375,
+            380.4453125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476979.2003503,
+    "frame_number": 66,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 66,
+      "timestamp": 1753476979.2003503,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.606609765625,
+          "bbox": [
+            366.125,
+            3.17578125,
+            638.625,
+            378.05078125
+          ],
+          "position": {
+            "x": 0.18311253958762494,
+            "y": -0.049839933044579364,
+            "z": 0.39700001885648817
+          },
+          "distance": 0.39700001885648817
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476979.265809,
+    "frame_number": 67,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 67,
+      "timestamp": 1753476979.265809,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6321103515625,
+          "bbox": [
+            369.53125,
+            2.6953125,
+            637.53125,
+            377.6953125
+          ],
+          "position": {
+            "x": 0.6015683033539242,
+            "y": -0.16616636207853344,
+            "z": 1.2970000616041943
+          },
+          "distance": 1.2970000616041943
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476979.327207,
+    "frame_number": 68,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 68,
+      "timestamp": 1753476979.327207,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.633425537109375,
+          "bbox": [
+            366.453125,
+            2.06640625,
+            639.453125,
+            379.06640625
+          ],
+          "position": {
+            "x": 0.5982291280734245,
+            "y": -0.16282718679803382,
+            "z": 1.2970000616041943
+          },
+          "distance": 1.2970000616041943
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476979.3980532,
+    "frame_number": 69,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 69,
+      "timestamp": 1753476979.3980532,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.644079931640625,
+          "bbox": [
+            367.53125,
+            2.84765625,
+            638.53125,
+            376.72265625
+          ],
+          "position": {
+            "x": 0.24353506524500246,
+            "y": -0.06764521139357413,
+            "z": 0.5280000250786543
+          },
+          "distance": 0.5280000250786543
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476979.4679713,
+    "frame_number": 70,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 70,
+      "timestamp": 1753476979.4679713,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.604952685546875,
+          "bbox": [
+            366.390625,
+            2.00390625,
+            638.890625,
+            378.12890625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476979.5290852,
+    "frame_number": 71,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 71,
+      "timestamp": 1753476979.5290852,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.613221533203125,
+          "bbox": [
+            365.125,
+            2.4140625,
+            639.125,
+            377.9140625
+          ],
+          "position": {
+            "x": 0.36945376375236166,
+            "y": -0.10262086046638803,
+            "z": 0.8010000380454585
+          },
+          "distance": 0.8010000380454585
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476979.6040359,
+    "frame_number": 72,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 72,
+      "timestamp": 1753476979.6040359,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6587021484375,
+          "bbox": [
+            363.125,
+            1.71484375,
+            639.625,
+            379.58984375
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476979.6659486,
+    "frame_number": 73,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 73,
+      "timestamp": 1753476979.6659486,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.640956787109375,
+          "bbox": [
+            366.578125,
+            2.390625,
+            638.078125,
+            378.890625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476979.73383,
+    "frame_number": 74,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 74,
+      "timestamp": 1753476979.73383,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.623486376953125,
+          "bbox": [
+            365.140625,
+            1.98828125,
+            639.140625,
+            379.98828125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476979.7968392,
+    "frame_number": 75,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 75,
+      "timestamp": 1753476979.7968392,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.59077802734375,
+          "bbox": [
+            368.921875,
+            2.73828125,
+            637.421875,
+            378.23828125
+          ],
+          "position": {
+            "x": 0.24307382459112936,
+            "y": -0.06616031414230056,
+            "z": 0.5270000250311568
+          },
+          "distance": 0.5270000250311568
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476979.8743455,
+    "frame_number": 76,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 76,
+      "timestamp": 1753476979.8743455,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.59540048828125,
+          "bbox": [
+            365.5625,
+            2.89453125,
+            639.5625,
+            376.89453125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476979.9399214,
+    "frame_number": 77,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 77,
+      "timestamp": 1753476979.9399214,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.599262939453125,
+          "bbox": [
+            367.234375,
+            1.6875,
+            638.734375,
+            379.1875
+          ],
+          "position": {
+            "x": 0.42295767960164254,
+            "y": -0.11512145743546416,
+            "z": 0.9170000435551628
+          },
+          "distance": 0.9170000435551628
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476980.0126688,
+    "frame_number": 78,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 78,
+      "timestamp": 1753476980.0126688,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476980.0718596,
+    "frame_number": 79,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 79,
+      "timestamp": 1753476980.0718596,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476980.1269653,
+    "frame_number": 80,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 80,
+      "timestamp": 1753476980.1269653,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.562549853515625,
+          "bbox": [
+            366.953125,
+            2.359375,
+            638.953125,
+            378.359375
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476980.2094955,
+    "frame_number": 81,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 81,
+      "timestamp": 1753476980.2094955,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.59215517578125,
+          "bbox": [
+            366.671875,
+            1.296875,
+            639.171875,
+            381.421875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476980.3283346,
+    "frame_number": 82,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 82,
+      "timestamp": 1753476980.3283346,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.65313583984375,
+          "bbox": [
+            360.890625,
+            2.65625,
+            640.890625,
+            379.15625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476980.3980942,
+    "frame_number": 83,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 83,
+      "timestamp": 1753476980.3980942,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6881377441406249,
+          "bbox": [
+            359.984375,
+            0.6328125,
+            639.984375,
+            385.1328125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476980.465042,
+    "frame_number": 84,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 84,
+      "timestamp": 1753476980.465042,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.7094346191406249,
+          "bbox": [
+            359.109375,
+            3.91796875,
+            639.609375,
+            378.41796875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476980.529968,
+    "frame_number": 85,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 85,
+      "timestamp": 1753476980.529968,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.71712197265625,
+          "bbox": [
+            358.421875,
+            2.65234375,
+            639.421875,
+            379.65234375
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476980.595966,
+    "frame_number": 86,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 86,
+      "timestamp": 1753476980.595966,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.679135302734375,
+          "bbox": [
+            358.09375,
+            3.140625,
+            639.09375,
+            377.640625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476980.6641417,
+    "frame_number": 87,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 87,
+      "timestamp": 1753476980.6641417,
+      "objects": []
+    }
+  },
+  {
+    "timestamp": 1753476980.7287962,
+    "frame_number": 88,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 88,
+      "timestamp": 1753476980.7287962,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.62660146484375,
+          "bbox": [
+            359.171875,
+            2.671875,
+            638.671875,
+            377.546875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476980.7958124,
+    "frame_number": 89,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 89,
+      "timestamp": 1753476980.7958124,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.5889461425781249,
+          "bbox": [
+            359.703125,
+            2.515625,
+            638.703125,
+            377.015625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476980.8640678,
+    "frame_number": 90,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 90,
+      "timestamp": 1753476980.8640678,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.70202919921875,
+          "bbox": [
+            362.46875,
+            3.0546875,
+            637.96875,
+            375.5546875
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476980.931293,
+    "frame_number": 91,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 91,
+      "timestamp": 1753476980.931293,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.708466796875,
+          "bbox": [
+            364.109375,
+            2.61328125,
+            638.109375,
+            375.61328125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476980.9960184,
+    "frame_number": 92,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 92,
+      "timestamp": 1753476980.9960184,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.683735546875,
+          "bbox": [
+            366.828125,
+            1.67578125,
+            637.828125,
+            378.17578125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476981.0737212,
+    "frame_number": 93,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 93,
+      "timestamp": 1753476981.0737212,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.6534822265625,
+          "bbox": [
+            364.796875,
+            2.09375,
+            639.296875,
+            378.09375
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476981.1395235,
+    "frame_number": 94,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 94,
+      "timestamp": 1753476981.1395235,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.596037109375,
+          "bbox": [
+            365.078125,
+            2.390625,
+            639.078125,
+            377.390625
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476981.2103539,
+    "frame_number": 95,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 95,
+      "timestamp": 1753476981.2103539,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.5741751953125,
+          "bbox": [
+            363.5625,
+            1.328125,
+            639.5625,
+            381.328125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476981.279024,
+    "frame_number": 96,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 96,
+      "timestamp": 1753476981.279024,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.635636572265625,
+          "bbox": [
+            365.578125,
+            3.84375,
+            638.578125,
+            376.34375
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476981.3285258,
+    "frame_number": 97,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 97,
+      "timestamp": 1753476981.3285258,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.610679833984375,
+          "bbox": [
+            364.984375,
+            2.1875,
+            638.984375,
+            378.3125
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476981.3987322,
+    "frame_number": 98,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 98,
+      "timestamp": 1753476981.3987322,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.54875693359375,
+          "bbox": [
+            366.125,
+            2.234375,
+            638.625,
+            378.734375
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "timestamp": 1753476981.461784,
+    "frame_number": 99,
+    "session_name": "session_20250725_135614",
+    "detections": {
+      "frame_id": 99,
+      "timestamp": 1753476981.461784,
+      "objects": [
+        {
+          "id": 0,
+          "class": "person",
+          "confidence": 0.668079638671875,
+          "bbox": [
+            365.90625,
+            1.3359375,
+            638.90625,
+            382.3359375
+          ]
+        }
+      ]
+    }
+  }
+]
