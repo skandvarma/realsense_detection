@@ -4,23 +4,24 @@ Complete CUDA-optimized RealSense detection application with real-time pipeline.
 Main application coordinator with GPU resource management and interactive controls.
 """
 
-import argparse
-import json
-import signal
+import os
 import sys
 import time
+import argparse
+import signal
+import threading
+import cv2
+import torch
+import numpy as np
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+import json
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.utils.config import ConfigManager
-from src.utils.logger import get_logger, PerformanceMonitor
-from src.integration.pipeline import RealSenseDetectionPipeline
-from src.integration.gpu_memory_manager import CUDAMemoryManager
-from src.integration.visualizer import CUDAVisualizer
-from src.detection import YOLO_AVAILABLE, DETR_AVAILABLE
+from src.utils.logger import get_logger, PerformanceMonitor, DataRecorder
 
 
 class DetectionApplication:
@@ -159,28 +160,17 @@ class DetectionApplication:
             return False
 
         try:
-            self.logger.info("Starting CUDA-accelerated detection application")
+            self.logger.info("Starting detection application with direct components")
             self._print_startup_info()
 
-            # Start pipeline
-            if not self.pipeline.start():
-                self.logger.error("Failed to start detection pipeline")
-                return False
-
-            # Start visualizer
-            if enable_visualization and self.visualizer:
-                self.visualizer.start_display_thread()
-
-            # Start recording if requested
-            if enable_recording:
-                self._start_recording_session()
+            # No separate pipeline start needed - components are ready
+            self.running = True
 
             # Initialize session statistics
             self.session_stats['start_time'] = time.time()
-            self.running = True
 
-            # Main execution loop
-            self._main_loop(duration, enable_visualization)
+            # Main execution loop using direct components
+            self._main_loop_direct_components(duration, enable_visualization)
 
             # Session summary
             self._print_session_summary()
@@ -193,8 +183,12 @@ class DetectionApplication:
         except Exception as e:
             self.logger.error(f"Application runtime error: {e}")
             return False
-        finally:
-            self._cleanup()
+        # Stop recording
+        if self.recording_session:
+            self._stop_recording_session()
+
+        # Cleanup components
+        self._cleanup()
 
     def _print_startup_info(self):
         """Print startup information and controls."""
@@ -203,18 +197,29 @@ class DetectionApplication:
         print("=" * 80)
 
         # System info
-        pipeline_stats = self.pipeline.get_stats()
         print(f"📊 System Status:")
-        print(f"   • Pipeline Mode: {'Multi-threaded' if self.pipeline.use_threading else 'Single-threaded'}")
-        print(f"   • Target FPS: {self.pipeline.target_fps}")
-        print(f"   • GPU Acceleration: {self.memory_manager is not None}")
-        print(f"   • 3D Tracking: {self.pipeline.enable_3d}")
+        print(f"   • Detection Model: {self.config['detection']['active_model']}")
+        print(f"   • Target FPS: {self.config.get('integration', {}).get('performance', {}).get('target_fps', 30)}")
+        print(f"   • GPU Acceleration: {torch.cuda.is_available()}")
 
         # Detection info
-        active_detector = self.pipeline.detector.get_active_detector() if self.pipeline.detector else None
-        if active_detector:
-            print(f"   • Active Model: {active_detector.model_info.model_name}")
-            print(f"   • Model Device: {active_detector.model_info.inference_device}")
+        if hasattr(self, 'detector') and self.detector:
+            active_detector = self.detector.get_active_detector() if hasattr(self.detector,
+                                                                             'get_active_detector') else self.detector
+            if active_detector and hasattr(active_detector, 'model_info'):
+                print(f"   • Model: {active_detector.model_info.model_name}")
+                print(f"   • Device: {active_detector.model_info.inference_device}")
+
+        # Camera info
+        if hasattr(self, 'camera_manager') and self.camera_manager:
+            camera_status = self.camera_manager.get_device_status()
+            print(f"   • Camera: {'Connected' if camera_status.get('device_connected', False) else 'Disconnected'}")
+            if camera_status.get('device_name'):
+                print(f"   • Camera Model: {camera_status['device_name']}")
+
+        # 3D processing
+        print(
+            f"   • 3D Processing: {'Enabled' if hasattr(self, 'depth_processor') and self.depth_processor else 'Disabled'}")
 
         # Controls
         if self.interactive_mode:
@@ -230,11 +235,17 @@ class DetectionApplication:
 
         print("=" * 80 + "\n")
 
-    def _main_loop(self, duration: Optional[float], enable_visualization: bool):
-        """Main application execution loop."""
+    def _main_loop_direct_components(self, duration: Optional[float], enable_visualization: bool):
+        """Main loop using direct components (working version)."""
         start_time = time.time()
         last_stats_time = start_time
-        stats_interval = 5.0  # Update stats every 5 seconds
+        stats_interval = 5.0
+        frame_count = 0
+
+        # Initialize OpenCV windows if visualization enabled
+        if enable_visualization:
+            cv2.namedWindow('Detection Results', cv2.WINDOW_NORMAL)
+            cv2.resizeWindow('Detection Results', 1280, 720)
 
         try:
             while self.running:
@@ -247,16 +258,21 @@ class DetectionApplication:
 
                 # Process frame if not paused
                 if not self.paused:
-                    self._process_single_iteration(enable_visualization)
+                    success = self._process_frame_direct(enable_visualization, frame_count)
+                    if success:
+                        frame_count += 1
+                        self.session_stats['frames_processed'] = frame_count
 
                 # Update statistics periodically
                 if loop_start - last_stats_time >= stats_interval:
-                    self._update_and_display_stats()
+                    self._update_stats_direct(frame_count, loop_start - start_time)
                     last_stats_time = loop_start
 
                 # Handle interactive input
-                if self.interactive_mode:
-                    self._handle_user_input()
+                if self.interactive_mode and enable_visualization:
+                    key = cv2.waitKey(1) & 0xFF
+                    if key != 255:
+                        self._handle_key_input_direct(key)
 
                 # Frame rate control
                 self._control_frame_rate(loop_start)
@@ -264,6 +280,184 @@ class DetectionApplication:
         except Exception as e:
             self.logger.error(f"Main loop error: {e}")
             self.session_stats['errors_count'] += 1
+        finally:
+            if enable_visualization:
+                cv2.destroyAllWindows()
+
+    def _process_frame_direct(self, enable_visualization: bool, frame_id: int) -> bool:
+        """Process a single frame using direct components."""
+        try:
+            # Capture frame from camera
+            frames = self.camera_manager.capture_frames()
+            if not frames or not frames.get('frame_valid', False):
+                return False
+
+            color_frame = frames.get('color')
+            depth_frame = frames.get('depth')
+
+            if color_frame is None:
+                return False
+
+            # Convert RGB to BGR for detection (if needed)
+            if color_frame.shape[2] == 3:
+                detection_image = cv2.cvtColor(color_frame, cv2.COLOR_RGB2BGR)
+            else:
+                detection_image = color_frame
+
+            # Run detection
+            result = self.detector.detect(detection_image, frame_id=frame_id)
+
+            if result.success:
+                # Apply postprocessing
+                enhanced_result = self.postprocessor.process_detection_result(
+                    result, depth_frame, frame_id
+                )
+
+                # Update statistics
+                self.session_stats['detections_count'] += len(enhanced_result.detections)
+
+                # Visualization
+                if enable_visualization:
+                    self._visualize_frame_direct(detection_image, enhanced_result, depth_frame)
+
+                return True
+
+            return False
+
+        except Exception as e:
+            self.logger.error(f"Frame processing error: {e}")
+            self.session_stats['errors_count'] += 1
+            return False
+
+    def _visualize_frame_direct(self, image: np.ndarray, result, depth_frame: Optional[np.ndarray]):
+        """Simple OpenCV-based visualization."""
+        import cv2
+
+        vis_image = image.copy()
+
+        # Draw detection results
+        if result and result.detections:
+            for detection in result.detections:
+                x1, y1, x2, y2 = map(int, detection.bbox)
+
+                # Draw bounding box
+                color = (0, 255, 0)  # Green
+                cv2.rectangle(vis_image, (x1, y1), (x2, y2), color, 2)
+
+                # Draw label
+                label = f"{detection.class_name}: {detection.confidence:.2f}"
+                if detection.detection_id is not None:
+                    label += f" ID:{detection.detection_id}"
+
+                # Add 3D position if available
+                if hasattr(detection, 'center_3d') and detection.center_3d != (0, 0, 0):
+                    label += f" ({detection.center_3d[0]:.1f},{detection.center_3d[1]:.1f},{detection.center_3d[2]:.1f}m)"
+
+                cv2.putText(vis_image, label, (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+        # Add performance info
+        current_time = time.time()
+        elapsed = current_time - self.session_stats['start_time']
+        fps = self.session_stats['frames_processed'] / elapsed if elapsed > 0 else 0
+
+        info_text = f"Frames: {self.session_stats['frames_processed']}, FPS: {fps:.1f}, Detections: {self.session_stats['detections_count']}"
+        cv2.putText(vis_image, info_text, (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+        # Display
+        cv2.imshow('Detection Results', vis_image)
+
+    def _update_stats_direct(self, frame_count: int, elapsed_time: float):
+        """Update and display statistics for direct components."""
+        fps = frame_count / elapsed_time if elapsed_time > 0 else 0
+
+        print(f"\n📊 Performance Update ({elapsed_time:.1f}s)")
+        print(f"   • Frames Processed: {frame_count}")
+        print(f"   • Average FPS: {fps:.1f}")
+        print(f"   • Total Detections: {self.session_stats['detections_count']}")
+
+        # Get detector performance stats
+        if hasattr(self.detector, 'get_performance_stats'):
+            perf_stats = self.detector.get_performance_stats()
+            if 'avg_inference_time' in perf_stats:
+                print(f"   • Avg Detection Time: {perf_stats['avg_inference_time'] * 1000:.1f}ms")
+            if 'avg_fps' in perf_stats:
+                print(f"   • Detection FPS: {perf_stats['avg_fps']:.1f}")
+
+        # Memory usage if available
+        if torch.cuda.is_available():
+            memory_mb = torch.cuda.memory_allocated() / 1024 ** 2
+            print(f"   • GPU Memory: {memory_mb:.1f}MB")
+
+    def _handle_key_input_direct(self, key: int):
+        """Handle keyboard input for direct components."""
+        if key == ord('q') or key == 27:  # 'q' or ESC
+            self.running = False
+        elif key == ord('p'):
+            self._toggle_pause()
+        elif key == ord('m'):
+            self._switch_detection_model_direct()
+        elif key == ord('s'):
+            self._save_performance_snapshot()
+        elif key == ord('h'):
+            self._show_help()
+
+    def _switch_detection_model_direct(self):
+        """Switch detection model for direct components."""
+        current_model = self.config['detection']['active_model']
+
+        if current_model == 'yolo':
+            new_model = 'detr'
+        else:
+            new_model = 'yolo'
+
+        self.logger.info(f"Switching from {current_model} to {new_model}...")
+
+        try:
+            # Create new detector
+            factory = DetectorFactory()
+            new_detector = factory.create_detector_with_fallback(self.config, new_model)
+
+            if new_detector:
+                # Cleanup old detector
+                if self.detector:
+                    self.detector.cleanup()
+
+                # Replace detector
+                self.detector = new_detector
+                self.config['detection']['active_model'] = new_model
+                self.session_stats['model_switches'] += 1
+
+                self.logger.info(f"Successfully switched to {new_model}")
+            else:
+                self.logger.error(f"Failed to create {new_model} detector")
+
+        except Exception as e:
+            self.logger.error(f"Model switch failed: {e}")
+
+    def _cleanup(self):
+        """Clean up direct components."""
+        self.logger.info("Cleaning up application resources...")
+
+        self.running = False
+
+        # Cleanup detector
+        if hasattr(self, 'detector') and self.detector:
+            self.detector.cleanup()
+
+        # Cleanup camera
+        if hasattr(self, 'camera_manager') and self.camera_manager:
+            self.camera_manager.cleanup()
+
+        # Cleanup memory manager
+        if self.memory_manager:
+            self.memory_manager.cleanup()
+
+        # Close OpenCV windows
+        cv2.destroyAllWindows()
+
+        self.logger.info("Application cleanup completed")
 
     def _process_single_iteration(self, enable_visualization: bool):
         """Process a single iteration of the pipeline."""
