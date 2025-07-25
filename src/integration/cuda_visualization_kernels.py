@@ -51,6 +51,8 @@ class CUDAVisualizationKernels:
         self.max_width = max_width
         self.max_height = max_height
         self.logger = get_logger("CUDAVisualizationKernels")
+
+        # CRITICAL: Initialize these attributes FIRST before any other operations
         self.detection_colors = None
         self.depth_colormap = None
         self.heatmap_colors = None

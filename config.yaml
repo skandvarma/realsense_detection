@@ -4,29 +4,29 @@ camera:
 
   # Stream Resolution Settings
   resolution:
-    width: 640
-    height: 480
+    width: 320
+    height: 240
 
   # Stream Configuration
   streams:
     color:
       enabled: true
-      width: 640
-      height: 480
+      width: 320
+      height: 240
       framerate: 15
       format: "RGB8"
 
     depth:
       enabled: true
-      width: 640
-      height: 480
+      width: 320
+      height: 240
       framerate: 15
       format: "Z16"
 
     infrared:
       enabled: false
-      width: 640
-      height: 480
+      width: 320
+      height: 240
       framerate: 30
       format: "Y8"
 

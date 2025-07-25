@@ -340,9 +340,9 @@ class CUDAMemoryManager:
 
         # Global settings
         gpu_config = config.get('gpu', {})
-        self.total_memory_limit_gb = gpu_config.get('memory_limit_gb', 8.0)
-        self.cleanup_interval = gpu_config.get('cleanup_interval', 60.0)
-        self.emergency_threshold = gpu_config.get('emergency_threshold', 0.95)
+        self.total_memory_limit_gb = gpu_config.get('memory_limit_gb', 1.5)
+        self.cleanup_interval = gpu_config.get('cleanup_interval', 30.0)
+        self.emergency_threshold = gpu_config.get('emergency_threshold', 0.8)
 
         # Multi-GPU support
         self.use_multi_gpu = gpu_config.get('use_multi_gpu', True) and self.device_count > 1
