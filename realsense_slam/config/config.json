@@ -1,0 +1,5 @@
+{
+    "camera": {"width": 640, "height": 480, "fps": 30},
+    "slam": {"voxel_size": 0.01, "max_depth": 3.0},
+    "viz": {"point_size": 2, "background": [0, 0, 0]}
+}

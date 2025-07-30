@@ -1,0 +1,26 @@
+[
+  {
+    "timestamp": 1753483923.86195,
+    "frame_number": 100,
+    "session_name": "session_20250725_155157",
+    "metadata": {
+      "capture_time": 0.0,
+      "detection_time": 0.008350610733032227,
+      "postprocess_time": 0.0005030632019042969,
+      "total_time": 0.009025096893310547,
+      "detection_count": 2
+    }
+  },
+  {
+    "timestamp": 1753483923.9279246,
+    "frame_number": 101,
+    "session_name": "session_20250725_155157",
+    "metadata": {
+      "capture_time": 0.0,
+      "detection_time": 0.008433341979980469,
+      "postprocess_time": 0.0006105899810791016,
+      "total_time": 0.009217977523803711,
+      "detection_count": 3
+    }
+  }
+]
