@@ -4,23 +4,27 @@ Complete CUDA-optimized RealSense detection application with real-time pipeline.
 Main application coordinator with GPU resource management and interactive controls.
 """
 
-import argparse
-import json
-import signal
+import os
 import sys
 import time
+import argparse
+import signal
+import threading
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+import json
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.utils.config import ConfigManager
-from src.utils.logger import get_logger, PerformanceMonitor
-from src.integration.pipeline import RealSenseDetectionPipeline
+from src.utils.logger import get_logger, PerformanceMonitor, DataRecorder
+from src.integration.pipeline import RealSenseDetectionPipeline, create_pipeline
 from src.integration.gpu_memory_manager import CUDAMemoryManager
-from src.integration.visualizer import CUDAVisualizer
-from src.detection import YOLO_AVAILABLE, DETR_AVAILABLE
+from src.integration.tracker import Object3DTracker, create_3d_tracker
+from src.integration.visualizer import CUDAVisualizer, create_cuda_visualizer
+from src.camera.realsense_manager import RealSenseManager
+from src.detection import DetectorFactory, YOLO_AVAILABLE, DETR_AVAILABLE
 
 
 class DetectionApplication:

@@ -20,6 +20,10 @@ DETECTION_FAILED = 1
 DETECTION_NO_OBJECTS = 2
 DETECTION_MODEL_ERROR = 3
 
+# Initialize availability flags BEFORE any imports
+YOLO_AVAILABLE = False
+DETR_AVAILABLE = False
+
 # Import main classes
 from .base_detector import Detection, Detection3D, DetectionResult, ModelInfo, BaseDetector
 from .detector_factory import DetectorFactory, DetectorWrapper
@@ -28,7 +32,6 @@ from .postprocessor import Postprocessor, DetectionTracker, DetectionFusion, Tem
 # Import and register detector implementations
 try:
     from .yolo_detector import YOLODetector, register_yolo_detector
-
     register_yolo_detector()
     YOLO_AVAILABLE = True
 except ImportError:
@@ -36,7 +39,6 @@ except ImportError:
 
 try:
     from .detr_detector import DETRDetector, register_detr_detector
-
     register_detr_detector()
     DETR_AVAILABLE = True
 except ImportError:

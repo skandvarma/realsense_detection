@@ -1,0 +1,50 @@
+[
+  {
+    "timestamp": 1753480205.7547195,
+    "frame_number": 200,
+    "session_name": "session_20250725_144952",
+    "metadata": {
+      "capture_time": 0.0,
+      "detection_time": 0.008423805236816406,
+      "postprocess_time": 0.0003285408020019531,
+      "total_time": 0.00890350341796875,
+      "detection_count": 1
+    }
+  },
+  {
+    "timestamp": 1753480205.8220222,
+    "frame_number": 201,
+    "session_name": "session_20250725_144952",
+    "metadata": {
+      "capture_time": 0.0,
+      "detection_time": 0.008374214172363281,
+      "postprocess_time": 0.00031375885009765625,
+      "total_time": 0.008842706680297852,
+      "detection_count": 1
+    }
+  },
+  {
+    "timestamp": 1753480205.8873446,
+    "frame_number": 202,
+    "session_name": "session_20250725_144952",
+    "metadata": {
+      "capture_time": 0.0,
+      "detection_time": 0.00842595100402832,
+      "postprocess_time": 0.0004279613494873047,
+      "total_time": 0.009000539779663086,
+      "detection_count": 2
+    }
+  },
+  {
+    "timestamp": 1753480205.9550881,
+    "frame_number": 203,
+    "session_name": "session_20250725_144952",
+    "metadata": {
+      "capture_time": 0.0,
+      "detection_time": 0.00865626335144043,
+      "postprocess_time": 0.0003802776336669922,
+      "total_time": 0.0092926025390625,
+      "detection_count": 1
+    }
+  }
+]

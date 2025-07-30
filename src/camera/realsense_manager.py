@@ -514,9 +514,12 @@ class RealSenseManager:
         try:
             self.is_streaming = False
 
-            if self.pipeline:
-                self.pipeline.stop()
-                self.logger.info("Pipeline stopped")
+            if hasattr(self, 'pipeline') and self.pipeline:
+                try:
+                    self.pipeline.stop()
+                    self.logger.info("Pipeline stopped")
+                except Exception as e:
+                    self.logger.debug(f"Pipeline stop error (normal if not started): {e}")
 
             # Clear references
             self.pipeline = None
@@ -528,7 +531,7 @@ class RealSenseManager:
             self.logger.info("Camera cleanup completed")
 
         except Exception as e:
-            self.logger.error(f"Error during cleanup: {e}")
+            self.logger.debug(f"Cleanup error: {e}")
 
     def __enter__(self):
         """Context manager entry."""
