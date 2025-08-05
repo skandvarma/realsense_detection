@@ -22,8 +22,8 @@ class SimpleSLAM:
 
         # Keyframe selection parameters
         self.last_keyframe_pose = np.eye(4)
-        self.keyframe_distance = 0.01  # meters
-        self.keyframe_angle = 0.1  # radians
+        self.keyframe_distance = 0.05  # meters
+        self.keyframe_angle = 0.2  # radians
 
         self.prev_rgbd = None
         self.frame_count = 0

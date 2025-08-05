@@ -69,7 +69,7 @@ def main():
     print("Testing camera... Press 'q' to quit")
 
     try:
-        for i in range(1000):
+        for i in range(100000):
             rgb, depth = camera.get_frames()
             if rgb is not None and depth is not None:
                 print(f"Frame {i}: RGB {rgb.shape}, Depth {depth.shape}")
