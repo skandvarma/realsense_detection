@@ -22,8 +22,8 @@ class SimpleSLAM:
 
         # Keyframe selection parameters
         self.last_keyframe_pose = np.eye(4)
-        self.keyframe_distance = 0.1  # meters
-        self.keyframe_angle = 0.2  # radians
+        self.keyframe_distance = 0.01  # meters
+        self.keyframe_angle = 0.1  # radians
 
         self.prev_rgbd = None
         self.frame_count = 0
@@ -117,7 +117,7 @@ class SimpleSLAM:
         combined_pcd = combined_pcd.voxel_down_sample(self.config["slam"]["voxel_size"])
 
         # Remove outliers for cleaner map
-        combined_pcd, _ = combined_pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+        combined_pcd, _ = combined_pcd.remove_statistical_outlier(nb_neighbors=10, std_ratio=1.0)
 
         self.global_pcd = combined_pcd
 

@@ -26,6 +26,8 @@ class SLAMSystem:
         self.running = False
 
     def run_session(self, session_name):
+        import time
+
         print(f"Starting SLAM session: {session_name}")
 
         # Initialize components
@@ -38,8 +40,13 @@ class SLAMSystem:
         frame_count = 0
 
         # Performance parameters
-        slam_skip = 2  # Process every 3rd frame for SLAM (reduces lag)
-        viz_skip = 5  # Update visualization every 6th frame
+        slam_skip = 5  # Process every 3rd frame for SLAM (reduces lag)
+        viz_skip = 10  # Update visualization every 11th frame
+
+        # Performance monitoring
+        start_time = time.time()
+        slam_times = []
+        viz_times = []
 
         try:
             while self.running:
@@ -55,10 +62,16 @@ class SLAMSystem:
                 if frame_count % slam_skip == 0:
                     # Convert depth to meters
                     depth_meters = depth.astype(np.float32) / 1000.0
+
+                    # Time SLAM processing
+                    slam_start = time.time()
                     self.slam.process_frame(rgb, depth_meters)
+                    slam_times.append(time.time() - slam_start)
 
                 # Update 3D visualization less frequently
                 if frame_count % viz_skip == 0:
+                    viz_start = time.time()
+
                     map_cloud = self.slam.get_map()
                     trajectory = self.slam.get_trajectory()
 
@@ -67,15 +80,27 @@ class SLAMSystem:
                     if len(trajectory) > 1:
                         self.visualizer.update_trajectory(trajectory)
 
+                    viz_times.append(time.time() - viz_start)
+
                 # Update visualizer (lightweight operation)
                 self.visualizer.spin_once()
 
                 frame_count += 1
 
-                # Performance monitoring
-                if frame_count % 90 == 0:  # Every 3 seconds at 30fps
-                    print(
-                        f"Processed {frame_count} frames, SLAM trajectory: {len(self.slam.get_trajectory())} poses, Map points: {len(self.slam.get_map().points)}")
+                # Performance monitoring - print stats every 1 second at 30fps
+                if frame_count % 30 == 0:
+                    avg_slam_time = np.mean(slam_times[-10:]) if slam_times else 0
+                    avg_viz_time = np.mean(viz_times[-6:]) if viz_times else 0
+                    total_time = time.time() - start_time
+                    fps = frame_count / total_time
+
+                    print(f"Frame {frame_count}: "
+                          f"FPS: {fps:.1f}, "
+                          f"SLAM: {avg_slam_time * 1000:.1f}ms, "
+                          f"Viz: {avg_viz_time * 1000:.1f}ms, "
+                          f"Trajectory: {len(self.slam.get_trajectory())} poses, "
+                          f"Map points: {len(self.slam.get_map().points)}, "
+                          f"Keyframes: {len(self.slam.frame_pcds)}")
 
         except Exception as e:
             print(f"Error during SLAM session: {e}")
