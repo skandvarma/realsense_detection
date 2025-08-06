@@ -27,18 +27,29 @@ class SLAMVisualizer:
         self.vis.add_geometry(self.coord_frame)
 
         self.geometries_added = False
+        self.max_viz_points = 50000  # Limit visualization points for performance
+
+        # Calibration status display
+        self.calibration_text_shown = False
 
     def update_map(self, point_cloud):
         if point_cloud is None or len(point_cloud.points) == 0:
             return
 
+        # Downsample for visualization if too large
+        viz_pcd = point_cloud
+        if len(point_cloud.points) > self.max_viz_points:
+            # Random downsampling for visualization
+            indices = np.random.choice(len(point_cloud.points), self.max_viz_points, replace=False)
+            viz_pcd = point_cloud.select_by_index(indices)
+
         if not self.geometries_added:
-            self.pcd = point_cloud
+            self.pcd = viz_pcd
             self.vis.add_geometry(self.pcd)
             self.geometries_added = True
         else:
-            self.pcd.points = point_cloud.points
-            self.pcd.colors = point_cloud.colors
+            self.pcd.points = viz_pcd.points
+            self.pcd.colors = viz_pcd.colors
             self.vis.update_geometry(self.pcd)
 
     def update_trajectory(self, poses):
@@ -67,9 +78,47 @@ class SLAMVisualizer:
             self.trajectory_lines.colors = o3d.utility.Vector3dVector(colors)
             self.vis.update_geometry(self.trajectory_lines)
 
-    def show_frame(self, rgb_image):
+    def show_frame(self, rgb_image, calibration_status=None):
         if rgb_image is not None:
-            cv2.imshow("Current Frame", rgb_image)
+            # Resize for faster display
+            display_image = cv2.resize(rgb_image, (320, 240))
+
+            # Add calibration status overlay if provided
+            if calibration_status is not None:
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.6
+                color = (0, 255, 0) if calibration_status.get('complete', False) else (0, 165,
+                                                                                       255)  # Green if complete, orange if not
+                thickness = 2
+
+                if not calibration_status.get('complete', False):
+                    # Show calibration progress
+                    progress = calibration_status.get('progress', 0)
+                    text = f"IMU Calibration: {progress}/100"
+                    text2 = "Keep device STATIONARY"
+
+                    cv2.putText(display_image, text, (10, 30), font, font_scale, color, thickness)
+                    cv2.putText(display_image, text2, (10, 55), font, font_scale, color, thickness)
+
+                    # Draw progress bar
+                    bar_width = 200
+                    bar_height = 10
+                    bar_x = 10
+                    bar_y = 70
+
+                    # Background
+                    cv2.rectangle(display_image, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), (50, 50, 50),
+                                  -1)
+                    # Progress
+                    progress_width = int((progress / 100.0) * bar_width)
+                    cv2.rectangle(display_image, (bar_x, bar_y), (bar_x + progress_width, bar_y + bar_height), color,
+                                  -1)
+                else:
+                    # Show calibration complete
+                    text = "IMU Calibrated - Ready!"
+                    cv2.putText(display_image, text, (10, 30), font, font_scale, color, thickness)
+
+            cv2.imshow("Current Frame", display_image)
             cv2.waitKey(1)
 
     def spin_once(self):

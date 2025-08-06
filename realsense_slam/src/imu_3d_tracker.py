@@ -197,7 +197,7 @@ class IMULocalOrientationTracker:
 
         # Store orientation history for visualization
         # Extract forward vector (X-axis) from current orientation
-        forward_vector = self.relative_orientation[:, 0] * 0.0001  # Scale for visualization
+        forward_vector = self.relative_orientation[:, 0] * 0.2  # Scale for visualization
         self.orientation_history.append(forward_vector.copy())
 
         # Limit history to prevent memory issues
@@ -332,7 +332,7 @@ class IMULocalOrientationTracker:
                     break
 
                 # Check for reset (simplified - reset every 1000 frames if needed)
-                if frame_count % 1000 == 0 and frame_count > 0 and self.reference_set:
+                if frame_count % 100000 == 0 and frame_count > 0 and self.reference_set:
                     print("Auto-reset reference to prevent long-term drift")
                     self.reset_reference()
 
