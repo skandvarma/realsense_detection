@@ -28,6 +28,11 @@ class SimpleSLAM:
         self.prev_rgbd = None
         self.frame_count = 0
 
+        # IMU integration
+        self.prev_accel = None
+        self.prev_gyro = None
+        self.prev_timestamp = None
+
     def is_keyframe(self, current_pose):
         """Determine if current frame should be a keyframe"""
         if len(self.trajectory) < 2:
@@ -40,8 +45,9 @@ class SimpleSLAM:
 
         return trans_diff > self.keyframe_distance or rot_diff > self.keyframe_angle
 
-    def process_frame(self, rgb, depth):
+    def process_frame(self, rgb, depth, accel=None, gyro=None):
         self.frame_count += 1
+        current_time = time.time()
 
         # Create Open3D camera intrinsic
         height, width = depth.shape
@@ -70,6 +76,10 @@ class SimpleSLAM:
                 o3d.pipelines.odometry.RGBDOdometryJacobianFromColorTerm(), option
             )
 
+            # Simple IMU validation if available
+            if success and accel is not None and gyro is not None:
+                success = self._validate_with_imu(trans, accel, gyro, current_time)
+
             if success:
                 # Update pose
                 self.current_pose = np.dot(self.current_pose, trans)
@@ -80,7 +90,32 @@ class SimpleSLAM:
                     self.add_keyframe(rgbd, intrinsic)
                     self.last_keyframe_pose = self.current_pose.copy()
 
+        # Store IMU data for next frame
+        self.prev_accel = accel
+        self.prev_gyro = gyro
+        self.prev_timestamp = current_time
         self.prev_rgbd = rgbd
+
+    def _validate_with_imu(self, visual_transform, accel, gyro, timestamp):
+        """Simple IMU validation of visual odometry"""
+        if self.prev_accel is None or self.prev_gyro is None or self.prev_timestamp is None:
+            return True
+
+        dt = timestamp - self.prev_timestamp
+        if dt <= 0 or dt > 0.5:  # Skip if time interval is invalid
+            return True
+
+        # Extract rotation from visual transform
+        visual_rotation = np.linalg.norm(visual_transform[:3, 3])
+
+        # Simple gyro integration check
+        gyro_rotation = np.linalg.norm(gyro) * dt
+
+        # If visual and gyro disagree significantly, reject
+        if abs(visual_rotation - gyro_rotation) > 0.5:  # 0.5 rad threshold
+            return False
+
+        return True
 
     def add_keyframe(self, rgbd, intrinsic):
         """Add keyframe to map with ICP refinement"""
@@ -148,7 +183,7 @@ def main():
     # Import camera module
     from camera import D435iCamera
 
-    print("Testing SLAM with real D435i camera data...")
+    print("Testing SLAM with real D435i camera and IMU data...")
 
     # Initialize camera
     camera = D435iCamera(config)
@@ -159,10 +194,12 @@ def main():
         # Process real camera frames
         for i in range(50):
             rgb, depth = camera.get_frames()
+            accel, gyro = camera.get_imu_data()
+
             if rgb is not None and depth is not None:
                 # Convert depth to meters (RealSense outputs in mm)
                 depth_meters = depth.astype(np.float32) / 1000.0
-                slam.process_frame(rgb, depth_meters)
+                slam.process_frame(rgb, depth_meters, accel, gyro)
                 print(f"Processed frame {i}, trajectory length: {len(slam.get_trajectory())}")
             else:
                 print(f"Frame {i}: No data received")

@@ -18,6 +18,10 @@ class D435iCamera:
         self.config_rs.enable_stream(rs.stream.color, cam_config["width"], cam_config["height"], rs.format.bgr8,
                                      cam_config["fps"])
 
+        # Enable IMU streams
+        self.config_rs.enable_stream(rs.stream.accel)
+        self.config_rs.enable_stream(rs.stream.gyro)
+
         # Start streaming
         self.profile = self.pipeline.start(self.config_rs)
 
@@ -28,12 +32,28 @@ class D435iCamera:
         color_stream = self.profile.get_stream(rs.stream.color)
         self.intrinsics = color_stream.as_video_stream_profile().get_intrinsics()
 
+        # IMU data storage
+        self.latest_accel = None
+        self.latest_gyro = None
+
     def get_frames(self):
         frames = self.pipeline.wait_for_frames()
         aligned_frames = self.align.process(frames)
 
         depth_frame = aligned_frames.get_depth_frame()
         color_frame = aligned_frames.get_color_frame()
+
+        # Get IMU data
+        accel_frame = frames.first_or_default(rs.stream.accel)
+        gyro_frame = frames.first_or_default(rs.stream.gyro)
+
+        if accel_frame:
+            accel_data = accel_frame.as_motion_frame().get_motion_data()
+            self.latest_accel = np.array([accel_data.x, accel_data.y, accel_data.z])
+
+        if gyro_frame:
+            gyro_data = gyro_frame.as_motion_frame().get_motion_data()
+            self.latest_gyro = np.array([gyro_data.x, gyro_data.y, gyro_data.z])
 
         if not depth_frame or not color_frame:
             return None, None
@@ -43,6 +63,10 @@ class D435iCamera:
         color_image = np.asanyarray(color_frame.get_data())
 
         return color_image, depth_image
+
+    def get_imu_data(self):
+        """Get latest IMU readings"""
+        return self.latest_accel, self.latest_gyro
 
     def get_intrinsics(self):
         # Return intrinsic matrix
@@ -66,13 +90,20 @@ def main():
         config = json.load(f)
 
     camera = D435iCamera(config)
-    print("Testing camera... Press 'q' to quit")
+    print("Testing camera with IMU... Press 'q' to quit")
 
     try:
         for i in range(100000):
             rgb, depth = camera.get_frames()
+            accel, gyro = camera.get_imu_data()
+
             if rgb is not None and depth is not None:
                 print(f"Frame {i}: RGB {rgb.shape}, Depth {depth.shape}")
+                if accel is not None:
+                    print(f"  Accel: {accel[0]:.3f}, {accel[1]:.3f}, {accel[2]:.3f}")
+                if gyro is not None:
+                    print(f"  Gyro:  {gyro[0]:.3f}, {gyro[1]:.3f}, {gyro[2]:.3f}")
+
                 cv2.imshow('RGB', rgb)
                 cv2.imshow('Depth', cv2.applyColorMap(cv2.convertScaleAbs(depth, alpha=0.03), cv2.COLORMAP_JET))
                 if cv2.waitKey(1) & 0xFF == ord('q'):

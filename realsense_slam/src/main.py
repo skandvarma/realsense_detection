@@ -50,8 +50,10 @@ class SLAMSystem:
 
         try:
             while self.running:
-                # Get camera frames (always for smooth video)
+                # Get camera frames and IMU data
                 rgb, depth = self.camera.get_frames()
+                accel, gyro = self.camera.get_imu_data()
+
                 if rgb is None or depth is None:
                     continue
 
@@ -65,7 +67,7 @@ class SLAMSystem:
 
                     # Time SLAM processing
                     slam_start = time.time()
-                    self.slam.process_frame(rgb, depth_meters)
+                    self.slam.process_frame(rgb, depth_meters, accel, gyro)
                     slam_times.append(time.time() - slam_start)
 
                 # Update 3D visualization less frequently
@@ -94,13 +96,15 @@ class SLAMSystem:
                     total_time = time.time() - start_time
                     fps = frame_count / total_time
 
+                    imu_status = "IMU OK" if accel is not None and gyro is not None else "IMU None"
                     print(f"Frame {frame_count}: "
                           f"FPS: {fps:.1f}, "
                           f"SLAM: {avg_slam_time * 1000:.1f}ms, "
                           f"Viz: {avg_viz_time * 1000:.1f}ms, "
                           f"Trajectory: {len(self.slam.get_trajectory())} poses, "
                           f"Map points: {len(self.slam.get_map().points)}, "
-                          f"Keyframes: {len(self.slam.frame_pcds)}")
+                          f"Keyframes: {len(self.slam.frame_pcds)}, "
+                          f"{imu_status}")
 
         except Exception as e:
             print(f"Error during SLAM session: {e}")
@@ -135,8 +139,8 @@ def main():
         with open(config_path, 'w') as f:
             json.dump({
                 "camera": {"width": 640, "height": 480, "fps": 30},
-                "slam": {"voxel_size": 0.01, "max_depth": 3.0},
-                "viz": {"point_size": 2, "background": [0, 0, 0]}
+                "slam": {"voxel_size": 0.035, "max_depth": 3.0},
+                "viz": {"point_size": 3, "background": [0, 0, 0]}
             }, f, indent=2)
 
     # Initialize and run SLAM system
