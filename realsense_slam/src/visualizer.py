@@ -1,201 +1,257 @@
 import open3d as o3d
 import numpy as np
 import cv2
-import time
-import json
 
 
-class SLAMVisualizer:
+class MinimalVisualizer:
     def __init__(self, config):
         self.config = config
 
+        # Performance tuning parameters
+        self.params = {
+            'viz_points_limit': config.get('viz', {}).get('viz_points_limit', 15000),
+            'update_every_n': config.get('viz', {}).get('update_every_n', 2),
+            'show_trajectory': config.get('viz', {}).get('show_trajectory', True),
+            'show_current_frame': config.get('viz', {}).get('show_current_frame', False),
+            'point_size': config.get('viz', {}).get('point_size', 2),
+            'trajectory_every_n': config.get('viz', {}).get('trajectory_every_n', 5)
+        }
+
         # Initialize visualizer
         self.vis = o3d.visualization.Visualizer()
-        self.vis.create_window("SLAM Visualization", width=1024, height=768)
+        self.vis.create_window("Minimal SLAM", width=800, height=600)
 
-        # Setup rendering options
+        # Setup rendering
         opt = self.vis.get_render_option()
-        opt.point_size = config["viz"]["point_size"]
-        opt.background_color = np.array(config["viz"]["background"])
+        opt.point_size = self.params['point_size']
+        opt.background_color = np.array(config.get('viz', {}).get('background', [0, 0, 0]))
 
-        # Initialize geometries
-        self.pcd = o3d.geometry.PointCloud()
-        self.trajectory_lines = o3d.geometry.LineSet()
+        # Single geometry for map
+        self.map_pcd = o3d.geometry.PointCloud()
+        self.map_added = False
 
-        # Add coordinate frame
-        self.coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
-        self.vis.add_geometry(self.coord_frame)
+        # Optional trajectory line
+        self.traj_line = None
+        self.traj_added = False
 
-        self.geometries_added = False
-        self.max_viz_points = 50000  # Limit visualization points for performance
+        # Frame counter
+        self.frame_count = 0
 
-        # Calibration status display
-        self.calibration_text_shown = False
+        print(f"Minimal Visualizer initialized with params: {self.params}")
 
     def update_map(self, point_cloud):
+        """Update map visualization with minimal operations"""
+        self.frame_count += 1
+
+        # Skip updates for performance
+        if self.frame_count % self.params['update_every_n'] != 0:
+            return
+
         if point_cloud is None or len(point_cloud.points) == 0:
             return
 
-        # Downsample for visualization if too large
+        # Limit points for visualization performance
         viz_pcd = point_cloud
-        if len(point_cloud.points) > self.max_viz_points:
-            # Random downsampling for visualization
-            indices = np.random.choice(len(point_cloud.points), self.max_viz_points, replace=False)
+        if len(point_cloud.points) > self.params['viz_points_limit']:
+            # Simple random downsampling for visualization
+            indices = np.random.choice(
+                len(point_cloud.points),
+                self.params['viz_points_limit'],
+                replace=False
+            )
             viz_pcd = point_cloud.select_by_index(indices)
 
-        if not self.geometries_added:
-            self.pcd = viz_pcd
-            self.vis.add_geometry(self.pcd)
-            self.geometries_added = True
+        # Update or add geometry
+        if not self.map_added:
+            self.map_pcd = viz_pcd
+            self.vis.add_geometry(self.map_pcd)
+            self.map_added = True
         else:
-            self.pcd.points = viz_pcd.points
-            self.pcd.colors = viz_pcd.colors
-            self.vis.update_geometry(self.pcd)
+            # Direct point and color update - fastest method
+            self.map_pcd.points = viz_pcd.points
+            if len(viz_pcd.colors) > 0:
+                self.map_pcd.colors = viz_pcd.colors
+            self.vis.update_geometry(self.map_pcd)
 
     def update_trajectory(self, poses):
-        if len(poses) < 2:
+        """Update trajectory with minimal line visualization"""
+        if not self.params['show_trajectory'] or len(poses) < 2:
+            return
+
+        # Only update every N poses for performance
+        if len(poses) % self.params['trajectory_every_n'] != 0:
             return
 
         # Extract positions
-        positions = [pose[:3, 3] for pose in poses]
+        positions = [pose[:3, 3] for pose in poses[::self.params['trajectory_every_n']]]
 
-        # Create line set
+        if len(positions) < 2:
+            return
+
+        # Create or update line set
+        if not self.traj_added:
+            self.traj_line = o3d.geometry.LineSet()
+            self.vis.add_geometry(self.traj_line)
+            self.traj_added = True
+
+        # Simple line creation
         points = o3d.utility.Vector3dVector(positions)
         lines = [[i, i + 1] for i in range(len(positions) - 1)]
 
-        if not hasattr(self, 'trajectory_added'):
-            self.trajectory_lines.points = points
-            self.trajectory_lines.lines = o3d.utility.Vector2iVector(lines)
-            # Set trajectory color (red)
-            colors = [[1, 0, 0] for _ in range(len(lines))]
-            self.trajectory_lines.colors = o3d.utility.Vector3dVector(colors)
-            self.vis.add_geometry(self.trajectory_lines)
-            self.trajectory_added = True
-        else:
-            self.trajectory_lines.points = points
-            self.trajectory_lines.lines = o3d.utility.Vector2iVector(lines)
-            colors = [[1, 0, 0] for _ in range(len(lines))]
-            self.trajectory_lines.colors = o3d.utility.Vector3dVector(colors)
-            self.vis.update_geometry(self.trajectory_lines)
+        self.traj_line.points = points
+        self.traj_line.lines = o3d.utility.Vector2iVector(lines)
 
-    def show_frame(self, rgb_image, calibration_status=None):
+        # Single color for all lines - faster than individual colors
+        colors = [[1, 0, 0]] * len(lines)  # Red trajectory
+        self.traj_line.colors = o3d.utility.Vector3dVector(colors)
+
+        self.vis.update_geometry(self.traj_line)
+
+    def show_frame(self, rgb_image):
+        """Show current RGB frame with minimal processing"""
         if rgb_image is not None:
-            # Resize for faster display
-            display_image = cv2.resize(rgb_image, (320, 240))
-
-            # Add calibration status overlay if provided
-            if calibration_status is not None:
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                font_scale = 0.6
-                color = (0, 255, 0) if calibration_status.get('complete', False) else (0, 165,
-                                                                                       255)  # Green if complete, orange if not
-                thickness = 2
-
-                if not calibration_status.get('complete', False):
-                    # Show calibration progress
-                    progress = calibration_status.get('progress', 0)
-                    text = f"IMU Calibration: {progress}/100"
-                    text2 = "Keep device STATIONARY"
-
-                    cv2.putText(display_image, text, (10, 30), font, font_scale, color, thickness)
-                    cv2.putText(display_image, text2, (10, 55), font, font_scale, color, thickness)
-
-                    # Draw progress bar
-                    bar_width = 200
-                    bar_height = 10
-                    bar_x = 10
-                    bar_y = 70
-
-                    # Background
-                    cv2.rectangle(display_image, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), (50, 50, 50),
-                                  -1)
-                    # Progress
-                    progress_width = int((progress / 100.0) * bar_width)
-                    cv2.rectangle(display_image, (bar_x, bar_y), (bar_x + progress_width, bar_y + bar_height), color,
-                                  -1)
-                else:
-                    # Show calibration complete
-                    text = "IMU Calibrated - Ready!"
-                    cv2.putText(display_image, text, (10, 30), font, font_scale, color, thickness)
-
-            cv2.imshow("Current Frame", display_image)
+            # Resize for performance
+            display_img = cv2.resize(rgb_image, (320, 240))
+            cv2.imshow("Current View", display_img)
             cv2.waitKey(1)
 
     def spin_once(self):
-        # Fixed: Don't use return value to determine continuation
+        """Update visualization once - minimal operations"""
         self.vis.poll_events()
         self.vis.update_renderer()
-        return True  # Always continue unless manually stopped
+        return True
 
     def close(self):
+        """Clean shutdown"""
         self.vis.destroy_window()
         cv2.destroyAllWindows()
 
+    def update_params(self, **kwargs):
+        """Update visualization parameters at runtime"""
+        for key, value in kwargs.items():
+            if key in self.params:
+                self.params[key] = value
+                print(f"Viz param {key} updated to {value}")
+
+                # Apply some changes immediately
+                if key == 'point_size':
+                    opt = self.vis.get_render_option()
+                    opt.point_size = value
+
+    def reset_view(self):
+        """Reset camera view to default"""
+        self.vis.reset_view_point(True)
+
+
+class PerformanceMonitor:
+    """Simple performance monitoring for tuning"""
+
+    def __init__(self):
+        self.frame_times = []
+        self.map_sizes = []
+        self.last_print = 0
+
+    def log_frame(self, frame_time, map_size):
+        self.frame_times.append(frame_time)
+        self.map_sizes.append(map_size)
+
+        # Print stats every 30 frames
+        if len(self.frame_times) % 30 == 0:
+            avg_time = np.mean(self.frame_times[-30:])
+            avg_size = np.mean(self.map_sizes[-30:])
+            fps = 1.0 / avg_time if avg_time > 0 else 0
+
+            print(f"Performance: {fps:.1f} FPS, {avg_time * 1000:.1f}ms/frame, {avg_size:.0f} points")
+
+    def suggest_params(self):
+        """Suggest parameter adjustments based on performance"""
+        if len(self.frame_times) < 30:
+            return {}
+
+        avg_time = np.mean(self.frame_times[-30:])
+        suggestions = {}
+
+        if avg_time > 0.05:  # Slower than 20 FPS
+            suggestions.update({
+                'voxel_size': 0.08,  # Increase for fewer points
+                'max_points': 15000,  # Reduce map size
+                'update_every_n': 3,  # Update less frequently
+                'viz_points_limit': 10000  # Reduce viz points
+            })
+            print("Performance suggestions: Increase voxel_size, reduce max_points")
+
+        elif avg_time < 0.02:  # Faster than 50 FPS
+            suggestions.update({
+                'voxel_size': 0.03,  # Decrease for more detail
+                'max_points': 30000,  # Increase map size
+                'update_every_n': 1,  # Update every frame
+                'viz_points_limit': 20000  # More viz points
+            })
+            print("Performance suggestions: Decrease voxel_size, increase max_points")
+
+        return suggestions
+
 
 def main():
-    # Test 3D visualization with real D435i camera data
-    with open('../config/config.json', 'r') as f:
-        config = json.load(f)
+    """Test minimal visualizer"""
+    import time
 
-    # Import and initialize camera
-    from camera import D435iCamera
+    # Test with synthetic data
+    config = {
+        'viz': {
+            'point_size': 2,
+            'background': [0, 0, 0],
+            'viz_points_limit': 15000,
+            'update_every_n': 1,
+            'show_trajectory': True
+        }
+    }
 
-    camera = D435iCamera(config)
-    viz = SLAMVisualizer(config)
+    viz = MinimalVisualizer(config)
+    monitor = PerformanceMonitor()
 
-    print("Testing visualization with real D435i camera...")
-    print("Close the 3D window or press Ctrl+C to exit")
+    print("Testing minimal visualizer with synthetic data...")
 
-    try:
-        # Get camera intrinsics for point cloud generation
-        intrinsics = camera.get_intrinsics()
-        height, width = config["camera"]["height"], config["camera"]["width"]
+    # Create test trajectory and point clouds
+    for i in range(100):
+        start_time = time.time()
 
-        intrinsic_o3d = o3d.camera.PinholeCameraIntrinsic(
-            width, height,
-            intrinsics[0, 0], intrinsics[1, 1],
-            intrinsics[0, 2], intrinsics[1, 2]
-        )
+        # Create test point cloud
+        points = np.random.random((1000, 3)) * 2 - 1  # Random points in [-1,1]^3
+        colors = np.random.random((1000, 3))
 
-        frame_count = 0
-        while True:
-            # Get real camera frames
-            rgb, depth = camera.get_frames()
-            if rgb is None or depth is None:
-                continue
+        test_pcd = o3d.geometry.PointCloud()
+        test_pcd.points = o3d.utility.Vector3dVector(points)
+        test_pcd.colors = o3d.utility.Vector3dVector(colors)
 
-            # Convert depth to meters and create point cloud
-            depth_meters = depth.astype(np.float32) / 1000.0
-            color_o3d = o3d.geometry.Image(cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB))
-            depth_o3d = o3d.geometry.Image(depth_meters)
+        # Create test trajectory
+        poses = []
+        for j in range(i + 1):
+            pose = np.eye(4)
+            pose[:3, 3] = [j * 0.1, 0, 0]  # Simple linear trajectory
+            poses.append(pose)
 
-            rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
-                color_o3d, depth_o3d, depth_trunc=config["slam"]["max_depth"]
-            )
+        # Update visualization
+        viz.update_map(test_pcd)
+        viz.update_trajectory(poses)
+        viz.spin_once()
 
-            # Generate point cloud from current frame
-            pcd = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd, intrinsic_o3d)
+        frame_time = time.time() - start_time
+        monitor.log_frame(frame_time, len(points))
 
-            # Update visualization
-            viz.update_map(pcd)
-            viz.show_frame(rgb)
+        # Auto-tune parameters based on performance
+        if i == 60:
+            suggestions = monitor.suggest_params()
+            if suggestions:
+                viz.update_params(**suggestions)
 
-            # Check if visualization should continue
-            viz.spin_once()
+        time.sleep(0.01)  # Small delay
 
-            frame_count += 1
-            if frame_count % 30 == 0:
-                print(f"Processed {frame_count} frames")
+    print("Test complete - close window to exit")
+    while viz.spin_once():
+        time.sleep(0.1)
 
-            time.sleep(0.033)  # ~30 FPS
-
-    except KeyboardInterrupt:
-        print("\nVisualization stopped by user")
-    except Exception as e:
-        print(f"Error: {e}")
-    finally:
-        camera.stop()
-        viz.close()
+    viz.close()
 
 
 if __name__ == "__main__":
