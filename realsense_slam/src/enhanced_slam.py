@@ -18,12 +18,12 @@ class EnhancedMinimalSLAM:
 
         # SLAM parameters
         self.params = {
-            'voxel_size': config.get('slam', {}).get('voxel_size', 0.05),
-            'max_points': config.get('slam', {}).get('max_points', 20000),
+            'voxel_size': config.get('slam', {}).get('voxel_size', 0.01),
+            'max_points': config.get('slam', {}).get('max_points', 120000),
             'icp_threshold': config.get('slam', {}).get('icp_threshold', 0.02),
             'max_depth': config.get('slam', {}).get('max_depth', 3.0),
             'process_every_n': config.get('slam', {}).get('process_every_n', 1),
-            'accumulate_every_n': config.get('slam', {}).get('accumulate_every_n', 3)
+            'accumulate_every_n': config.get('slam', {}).get('accumulate_every_n', 1)
         }
 
         # Visual SLAM state
@@ -244,7 +244,7 @@ class EnhancedMinimalSLAM:
             return False, np.eye(4)
 
         result = o3d.pipelines.registration.registration_icp(
-            source_pcd, target_pcd,
+            target_pcd, source_pcd,
             self.params['icp_threshold'],
             np.eye(4),
             o3d.pipelines.registration.TransformationEstimationPointToPoint(),
@@ -328,7 +328,7 @@ class EnhancedMinimalSLAM:
                 if transform_valid:
                     # Apply coordinate alignment to pose transformation
                     aligned_transform = self.coordinate_aligner.align_pose(transform)
-                    self.current_pose = np.dot(self.current_pose, aligned_transform)
+                    self.current_pose = np.dot(aligned_transform, self.current_pose)
                     self.trajectory.append(self.current_pose.copy())
                 else:
                     self.trajectory.append(self.current_pose.copy())
@@ -336,8 +336,8 @@ class EnhancedMinimalSLAM:
                 self.trajectory.append(self.current_pose.copy())
 
         # Accumulate to map less frequently
-        if self.frame_count % self.params['accumulate_every_n'] == 0:
-            self.accumulate_to_map(current_pcd)
+        self.accumulate_to_map(current_pcd)
+        print(f"Map points: {len(self.map_cloud.points)}")  # See if map is growing
 
         self.prev_cloud = current_pcd
 
@@ -359,24 +359,27 @@ class EnhancedMinimalSLAM:
         return translation <= max_translation and rotation_angle <= max_rotation
 
     def accumulate_to_map(self, pcd):
-        """Accumulate point cloud to map"""
-        # Apply scale factor to map points for consistency
-        scaled_pose = self.current_pose.copy()
-        scaled_pose[:3, 3] *= self.scale_factor
+        """Accumulate point cloud to map - FIXED"""
+        # Copy the cloud to avoid reference issues
+        pcd_copy = o3d.geometry.PointCloud(pcd)
 
-        pcd_global = pcd.transform(scaled_pose)
-        self.map_cloud += pcd_global
+        # Transform to world coordinates
+        pcd_world = pcd_copy.transform(self.current_pose)
 
+        # Add to map
+        if len(self.map_cloud.points) == 0:
+            # First cloud - initialize map
+            self.map_cloud = pcd_world
+            print(f"Initialized map with {len(self.map_cloud.points)} points")
+        else:
+            # Add to existing map
+            self.map_cloud += pcd_world
+            print(f"Map now has {len(self.map_cloud.points)} points")
+
+        # Downsample if too large
         if len(self.map_cloud.points) > self.params['max_points']:
-            self.map_cloud = self.map_cloud.voxel_down_sample(self.params['voxel_size'] * 1.5)
-
-            if len(self.map_cloud.points) > self.params['max_points']:
-                indices = np.random.choice(
-                    len(self.map_cloud.points),
-                    self.params['max_points'],
-                    replace=False
-                )
-                self.map_cloud = self.map_cloud.select_by_index(indices)
+            self.map_cloud = self.map_cloud.voxel_down_sample(self.params['voxel_size'] * 2)
+            print(f"Downsampled to {len(self.map_cloud.points)} points")
 
     def get_map(self):
         return self.map_cloud

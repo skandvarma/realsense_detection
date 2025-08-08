@@ -39,7 +39,7 @@ class MinimalVisualizer:
         self.imu_traj_added = False
 
         # Coordinate frame for reference
-        self.coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
+        self.coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1)
         self.vis.add_geometry(self.coord_frame)
 
         # Frame counter

@@ -3,34 +3,7 @@ import numpy as np
 
 class CoordinateFrameAligner:
     def __init__(self):
-        """
-        RealSense D435i Coordinate Frames:
-
-        Camera Frame (RGB/Depth):
-        - X: Right
-        - Y: Down
-        - Z: Forward (into scene)
-
-        IMU Frame:
-        - X: Right
-        - Y: Forward (direction camera faces)
-        - Z: Up
-
-        Open3D/SLAM Frame (desired):
-        - X: Right
-        - Y: Forward
-        - Z: Up
-        """
-
-        # Transformation from Camera frame to IMU frame
-        # Camera: X=right, Y=down, Z=forward
-        # IMU: X=right, Y=forward, Z=up
-        self.camera_to_imu = np.array([
-            [1, 0, 0, 0],  # X stays X
-            [0, 0, 1, 0],  # Camera Z becomes IMU Y
-            [0, -1, 0, 0],  # Camera -Y becomes IMU Z
-            [0, 0, 0, 1]
-        ])
+        self.camera_to_imu = np.eye(4)
 
         # IMU to SLAM coordinate alignment (if needed)
         # This is identity since we want IMU frame as reference
@@ -47,11 +20,7 @@ class CoordinateFrameAligner:
         return pcd.transform(self.camera_to_slam)
 
     def align_pose(self, pose_camera_frame):
-        # MINIMAL FIX: Check if pose represents significant motion
-        translation_magnitude = np.linalg.norm(pose_camera_frame[:3, 3])
-        if translation_magnitude < 0.005:  # Less than 5mm - likely noise
-            return np.eye(4)  # Return identity to prevent noise amplification
-
+        # MINIMAL FIX: Just apply the transformation, don't filter
         return np.dot(self.camera_to_slam, pose_camera_frame)
 
     def align_imu_trajectory_to_visual(self, imu_poses):
