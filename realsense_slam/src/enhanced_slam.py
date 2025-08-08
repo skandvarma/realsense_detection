@@ -4,7 +4,7 @@ import json
 import cv2
 import time
 from motion_detector import VisualIMUMotionDetector
-from coordinate_aligner import CoordinateFrameAligner  # Add this import
+from coordinate_aligner import CoordinateFrameAligner
 
 
 class EnhancedMinimalSLAM:
@@ -12,13 +12,11 @@ class EnhancedMinimalSLAM:
         self.intrinsics = intrinsics
         self.config = config
 
-        # Initialize motion detector
+        # Initialize motion detector and coordinate aligner
         self.motion_detector = VisualIMUMotionDetector()
-
-        # ADD THIS: Initialize coordinate aligner
         self.coordinate_aligner = CoordinateFrameAligner()
 
-        # SLAM parameters (same as before)
+        # SLAM parameters
         self.params = {
             'voxel_size': config.get('slam', {}).get('voxel_size', 0.05),
             'max_points': config.get('slam', {}).get('max_points', 20000),
@@ -28,7 +26,7 @@ class EnhancedMinimalSLAM:
             'accumulate_every_n': config.get('slam', {}).get('accumulate_every_n', 3)
         }
 
-        # State
+        # Visual SLAM state
         self.current_pose = np.eye(4)
         self.trajectory = [self.current_pose.copy()]
         self.map_cloud = o3d.geometry.PointCloud()
@@ -36,6 +34,17 @@ class EnhancedMinimalSLAM:
         self.prev_rgb = None
         self.frame_count = 0
         self.last_time = time.time()
+
+        # IMU trajectory tracking (MINIMAL ADDITION)
+        self.imu_position = np.zeros(3)
+        self.imu_velocity = np.zeros(3)
+        self.imu_trajectory = [np.zeros(3)]
+        self.trajectory_timestamps = [time.time()]
+
+        # Scale alignment (MINIMAL ADDITION)
+        self.scale_factor = 1.0
+        self.scale_estimation_window = 20  # Use last 20 poses for scale estimation
+        self.last_scale_update = 0
 
         # Motion tracking
         self.motion_log = []
@@ -49,7 +58,107 @@ class EnhancedMinimalSLAM:
             intrinsics[0, 2], intrinsics[1, 2]
         )
 
-        print("Enhanced SLAM with coordinate alignment initialized")
+        print("Enhanced SLAM with minimal trajectory alignment initialized")
+
+    def update_imu_trajectory(self, accel, gyro, dt):
+        """IMU trajectory tracking with proper coordinate alignment"""
+        if accel is None or dt <= 0 or dt > 0.1:
+            return
+
+        # APPLY COORDINATE ALIGNMENT TO IMU DATA
+        # Transform acceleration from IMU frame to SLAM frame
+        accel_4d = np.array([accel[0], accel[1], accel[2], 0])  # Homogeneous
+        aligned_accel_4d = self.coordinate_aligner.camera_to_slam @ accel_4d
+        aligned_accel = aligned_accel_4d[:3]  # Back to 3D
+
+        # Remove gravity (simple approximation)
+        accel_magnitude = np.linalg.norm(aligned_accel)
+        if accel_magnitude > 5.0:  # Valid acceleration reading
+            # Simple gravity removal - assume gravity is dominant component
+            gravity_removed = max(0, accel_magnitude - 9.8)
+
+            # Apply in direction of acceleration
+            if accel_magnitude > 0:
+                accel_direction = aligned_accel / accel_magnitude
+                world_accel = accel_direction * gravity_removed
+            else:
+                world_accel = np.zeros(3)
+
+            # Simple integration (with damping to prevent runaway)
+            self.imu_velocity += world_accel * dt
+            self.imu_velocity *= 0.95  # Damping factor
+
+            self.imu_position += self.imu_velocity * dt
+
+            # Store in trajectory
+            self.imu_trajectory.append(self.imu_position.copy())
+            self.trajectory_timestamps.append(time.time())
+
+            # Keep trajectory manageable
+            if len(self.imu_trajectory) > 1000:
+                self.imu_trajectory.pop(0)
+                self.trajectory_timestamps.pop(0)
+
+    def estimate_scale_factor(self):
+        """MINIMAL scale estimation between visual and IMU trajectories"""
+        if len(self.trajectory) < self.scale_estimation_window:
+            return
+
+        # Get recent trajectory segments
+        visual_poses = self.trajectory[-self.scale_estimation_window:]
+        imu_positions = self.imu_trajectory[-self.scale_estimation_window:]
+
+        if len(imu_positions) < self.scale_estimation_window:
+            return
+
+        # Calculate distances traveled
+        visual_distance = 0.0
+        imu_distance = 0.0
+
+        for i in range(1, len(visual_poses)):
+            # Visual SLAM distance
+            visual_pos1 = visual_poses[i - 1][:3, 3]
+            visual_pos2 = visual_poses[i][:3, 3]
+            visual_distance += np.linalg.norm(visual_pos2 - visual_pos1)
+
+            # IMU distance
+            imu_pos1 = imu_positions[i - 1]
+            imu_pos2 = imu_positions[i]
+            imu_distance += np.linalg.norm(imu_pos2 - imu_pos1)
+
+        # Estimate scale factor
+        if visual_distance > 0.01 and imu_distance > 0.01:  # Minimum movement threshold
+            new_scale = imu_distance / visual_distance
+
+            # Simple moving average for stability
+            alpha = 0.1  # Smoothing factor
+            self.scale_factor = alpha * new_scale + (1 - alpha) * self.scale_factor
+
+            print(
+                f"Scale factor updated: {self.scale_factor:.3f} (IMU: {imu_distance:.3f}m, Visual: {visual_distance:.3f}m)")
+
+    def get_aligned_trajectory(self):
+        """Return visual trajectory aligned with IMU scale"""
+        aligned_trajectory = []
+
+        for pose in self.trajectory:
+            aligned_pose = pose.copy()
+            # Apply scale factor to translation component
+            aligned_pose[:3, 3] *= self.scale_factor
+            aligned_trajectory.append(aligned_pose)
+
+        return aligned_trajectory
+
+    def get_imu_trajectory_poses(self):
+        """Convert IMU positions to 4x4 pose format for visualization"""
+        imu_poses = []
+
+        for position in self.imu_trajectory:
+            pose = np.eye(4)
+            pose[:3, 3] = position
+            imu_poses.append(pose)
+
+        return imu_poses
 
     def create_point_cloud(self, rgb, depth):
         """Create point cloud from RGB-D and align to SLAM frame"""
@@ -67,14 +176,13 @@ class EnhancedMinimalSLAM:
 
         if len(pcd.points) > 0:
             pcd = pcd.voxel_down_sample(self.params['voxel_size'])
-
-            # APPLY COORDINATE ALIGNMENT - This is the key fix!
+            # Apply coordinate alignment
             pcd = self.coordinate_aligner.align_point_cloud(pcd)
 
         return pcd
 
     def estimate_pose(self, source_pcd, target_pcd):
-        """ICP pose estimation (same as before)"""
+        """ICP pose estimation"""
         if len(source_pcd.points) < 100 or len(target_pcd.points) < 100:
             return False, np.eye(4)
 
@@ -92,52 +200,18 @@ class EnhancedMinimalSLAM:
 
         return result.fitness > 0.1, result.transformation
 
-    def process_slam_update(self, rgb, depth, motion_result):
-        """Process SLAM update when motion is detected"""
-        # Create point cloud (now properly aligned)
-        current_pcd = self.create_point_cloud(rgb, depth)
-
-        if len(current_pcd.points) == 0:
-            return
-
-        # Pose estimation only if we have previous cloud
-        if self.prev_cloud is not None:
-            success, transform = self.estimate_pose(current_pcd, self.prev_cloud)
-
-            if success:
-                # Validate transform with motion detection confidence
-                transform_valid = self.validate_transform(transform, motion_result)
-
-                if transform_valid:
-                    # APPLY COORDINATE ALIGNMENT to pose transformation
-                    aligned_transform = self.coordinate_aligner.align_pose(transform)
-
-                    # Update pose
-                    self.current_pose = np.dot(self.current_pose, aligned_transform)
-                    self.trajectory.append(self.current_pose.copy())
-                else:
-                    # Reject transform, keep same pose
-                    self.trajectory.append(self.current_pose.copy())
-            else:
-                # ICP failed, but motion was detected - keep same pose
-                self.trajectory.append(self.current_pose.copy())
-
-        # Accumulate to map less frequently
-        if self.frame_count % self.params['accumulate_every_n'] == 0:
-            self.accumulate_to_map(current_pcd)
-
-        # Store for next frame
-        self.prev_cloud = current_pcd
-
-    # Rest of the methods remain the same...
     def process_frame(self, rgb, depth, accel=None, gyro=None):
-        """Enhanced frame processing with motion detection"""
+        """Enhanced frame processing with motion detection and trajectory alignment"""
         self.frame_count += 1
         current_time = time.time()
         dt = current_time - self.last_time
 
+        # Update IMU trajectory (MINIMAL ADDITION)
+        self.update_imu_trajectory(accel, gyro, dt)
+
         # Skip frames for performance if configured
         if self.frame_count % self.params['process_every_n'] != 0:
+            self.last_time = current_time
             return
 
         # Motion detection
@@ -160,19 +234,19 @@ class EnhancedMinimalSLAM:
         else:
             # If no motion, don't update pose but still count as stationary
             self.stationary_count += 1
-            self.trajectory.append(self.current_pose.copy())  # Same pose
+            self.trajectory.append(self.current_pose.copy())
+
+        # Update scale factor periodically (MINIMAL ADDITION)
+        if self.frame_count - self.last_scale_update > 30:  # Every 30 frames
+            self.estimate_scale_factor()
+            self.last_scale_update = self.frame_count
 
         self.last_time = current_time
 
     def analyze_motion(self, rgb, accel, gyro, dt):
         """Analyze motion using visual-IMU detector"""
-        # Visual motion detection
         visual_motion = self.motion_detector.detect_visual_motion(rgb)
-
-        # IMU motion analysis
         imu_motion = self.motion_detector.analyze_imu_motion(accel, gyro, dt)
-
-        # Fuse motion detection
         motion_decision = self.motion_detector.fuse_motion_detection(visual_motion, imu_motion, dt)
 
         return {
@@ -181,16 +255,40 @@ class EnhancedMinimalSLAM:
             'decision': motion_decision
         }
 
+    def process_slam_update(self, rgb, depth, motion_result):
+        """Process SLAM update when motion is detected"""
+        current_pcd = self.create_point_cloud(rgb, depth)
+
+        if len(current_pcd.points) == 0:
+            return
+
+        if self.prev_cloud is not None:
+            success, transform = self.estimate_pose(current_pcd, self.prev_cloud)
+
+            if success:
+                transform_valid = self.validate_transform(transform, motion_result)
+
+                if transform_valid:
+                    # Apply coordinate alignment to pose transformation
+                    aligned_transform = self.coordinate_aligner.align_pose(transform)
+                    self.current_pose = np.dot(self.current_pose, aligned_transform)
+                    self.trajectory.append(self.current_pose.copy())
+                else:
+                    self.trajectory.append(self.current_pose.copy())
+            else:
+                self.trajectory.append(self.current_pose.copy())
+
+        # Accumulate to map less frequently
+        if self.frame_count % self.params['accumulate_every_n'] == 0:
+            self.accumulate_to_map(current_pcd)
+
+        self.prev_cloud = current_pcd
+
     def validate_transform(self, transform, motion_result):
         """Validate transform against motion detection"""
-        # Extract translation and rotation from transform
         translation = np.linalg.norm(transform[:3, 3])
         rotation_angle = np.arccos(np.clip((np.trace(transform[:3, :3]) - 1) / 2, -1, 1))
 
-        # Get motion confidence
-        confidence = motion_result['decision']['confidence']
-
-        # Validation thresholds based on motion type
         if motion_result['decision']['agreement'] == 'both_agree_motion':
             max_translation = 0.2
             max_rotation = 0.5
@@ -201,15 +299,15 @@ class EnhancedMinimalSLAM:
             max_translation = 0.05
             max_rotation = 0.2
 
-        # Validate
-        if translation > max_translation or rotation_angle > max_rotation:
-            return False
-
-        return True
+        return translation <= max_translation and rotation_angle <= max_rotation
 
     def accumulate_to_map(self, pcd):
-        """Accumulate point cloud to map (already aligned)"""
-        pcd_global = pcd.transform(self.current_pose)
+        """Accumulate point cloud to map"""
+        # Apply scale factor to map points for consistency
+        scaled_pose = self.current_pose.copy()
+        scaled_pose[:3, 3] *= self.scale_factor
+
+        pcd_global = pcd.transform(scaled_pose)
         self.map_cloud += pcd_global
 
         if len(self.map_cloud.points) > self.params['max_points']:
@@ -227,7 +325,12 @@ class EnhancedMinimalSLAM:
         return self.map_cloud
 
     def get_trajectory(self):
-        return self.trajectory
+        """Return scale-aligned visual trajectory"""
+        return self.get_aligned_trajectory()
+
+    def get_imu_trajectory(self):
+        """Return IMU trajectory for visualization"""
+        return self.get_imu_trajectory_poses()
 
     def get_motion_stats(self):
         """Get motion detection statistics"""
@@ -235,10 +338,8 @@ class EnhancedMinimalSLAM:
             return {}
 
         recent_log = self.motion_log[-100:]
-
         total_frames = len(recent_log)
         motion_frames = sum(1 for entry in recent_log if entry['motion_detected'])
-        stationary_frames = total_frames - motion_frames
 
         agreements = [entry['agreement'] for entry in recent_log]
         agreement_counts = {}
@@ -251,18 +352,21 @@ class EnhancedMinimalSLAM:
         return {
             'total_frames': total_frames,
             'motion_frames': motion_frames,
-            'stationary_frames': stationary_frames,
             'motion_rate': motion_frames / total_frames if total_frames > 0 else 0,
             'drift_detection_rate': drift_rate,
-            'agreement_counts': agreement_counts
+            'agreement_counts': agreement_counts,
+            'scale_factor': self.scale_factor  # ADDED: Include scale factor in stats
         }
 
     def save_session(self, filename):
-        """Save session with motion analysis"""
+        """Save session with motion analysis and alignment data"""
         o3d.io.write_point_cloud(f"{filename}_map.ply", self.map_cloud)
 
+        # Save both trajectories
         session_data = {
-            "poses": [pose.tolist() for pose in self.trajectory],
+            "visual_poses": [pose.tolist() for pose in self.get_aligned_trajectory()],
+            "imu_poses": [pose.tolist() for pose in self.get_imu_trajectory()],
+            "scale_factor": self.scale_factor,
             "frame_count": self.frame_count,
             "params": self.params,
             "motion_stats": self.get_motion_stats(),
@@ -275,15 +379,17 @@ class EnhancedMinimalSLAM:
         with open(f"{filename}_motion_log.json", 'w') as f:
             json.dump(self.motion_log, f, indent=2)
 
+        print(f"Session saved with scale factor: {self.scale_factor:.3f}")
+
 
 def main():
-    """Test enhanced SLAM"""
+    """Test enhanced SLAM with trajectory alignment"""
     with open('../config/config.json', 'r') as f:
         config = json.load(f)
 
     from camera import D435iCamera
 
-    print("Testing Enhanced SLAM with Motion Detection...")
+    print("Testing Enhanced SLAM with Trajectory Alignment...")
     camera = D435iCamera(config)
     intrinsics = camera.get_intrinsics()
     slam = EnhancedMinimalSLAM(intrinsics, config)
@@ -299,13 +405,14 @@ def main():
 
                 if i % 30 == 0:
                     stats = slam.get_motion_stats()
-                    print(f"Frame {i}: trajectory={len(slam.get_trajectory())}, "
-                          f"map={len(slam.get_map().points)}, "
-                          f"motion_rate={stats.get('motion_rate', 0):.2%}, "
-                          f"drift_rate={stats.get('drift_detection_rate', 0):.2%}")
+                    print(f"Frame {i}: "
+                          f"Visual trajectory: {len(slam.get_trajectory())} poses, "
+                          f"IMU trajectory: {len(slam.get_imu_trajectory())} poses, "
+                          f"Scale factor: {stats.get('scale_factor', 1.0):.3f}, "
+                          f"Map points: {len(slam.get_map().points)}")
 
-        slam.save_session("../data/sessions/enhanced_test")
-        print("Enhanced SLAM test complete")
+        slam.save_session("../data/sessions/aligned_test")
+        print("Enhanced SLAM with alignment test complete")
 
     finally:
         camera.stop()

@@ -20,15 +20,16 @@ class EnhancedSLAMSystem:
         self.running = False
 
     def run_enhanced_slam(self, session_name):
-        print("=== Enhanced SLAM with Visual-IMU Motion Detection ===")
+        print("=== Enhanced SLAM with Trajectory Alignment ===")
         print(f"Session: {session_name}")
         print("Features:")
-        print("- Visual motion detection (feature matching + optical flow)")
-        print("- IMU drift filtering (using your 0.17m/s baseline)")
-        print("- Motion validation and agreement analysis")
-        print("- Smart SLAM updates only when real motion detected")
+        print("- Visual motion detection + IMU drift filtering")
+        print("- Automatic scale alignment between trajectories")
+        print("- GREEN line: Visual SLAM trajectory")
+        print("- RED line: IMU trajectory")
+        print("- Real-time scale factor estimation")
         print("Controls: Press 'q' to quit")
-        print("=" * 55)
+        print("=" * 50)
 
         # Initialize components
         self.camera = D435iCamera(self.config)
@@ -39,9 +40,6 @@ class EnhancedSLAMSystem:
         self.running = True
         frame_count = 0
         start_time = time.time()
-
-        # Motion tracking for display
-        last_motion_status = "UNKNOWN"
         last_stats_time = time.time()
 
         try:
@@ -55,20 +53,23 @@ class EnhancedSLAMSystem:
                 if rgb is None or depth is None:
                     continue
 
-                # Process enhanced SLAM with motion detection
+                # Process enhanced SLAM with motion detection and alignment
                 depth_meters = depth.astype(np.float32) / 1000.0
                 self.slam.process_frame(rgb, depth_meters, accel, gyro)
 
-                # Update visualization
+                # Get both trajectories
                 map_cloud = self.slam.get_map()
-                trajectory = self.slam.get_trajectory()
+                visual_trajectory = self.slam.get_trajectory()  # Returns aligned visual trajectory
+                imu_trajectory = self.slam.get_imu_trajectory()  # Returns IMU trajectory
 
+                # Update visualization with both trajectories
                 self.visualizer.update_map(map_cloud)
-                self.visualizer.update_trajectory(trajectory)
+                self.visualizer.update_visual_trajectory(visual_trajectory)  # GREEN
+                self.visualizer.update_imu_trajectory(imu_trajectory)  # RED
 
-                # Enhanced frame display with motion status
+                # Enhanced frame display with alignment info
                 motion_stats = self.slam.get_motion_stats()
-                self.show_enhanced_frame(rgb, motion_stats, frame_count)
+                self.visualizer.show_frame(rgb, motion_stats, frame_count)
 
                 if not self.visualizer.spin_once():
                     break
@@ -83,7 +84,8 @@ class EnhancedSLAMSystem:
                 # Detailed status every 3 seconds
                 current_time = time.time()
                 if current_time - last_stats_time >= 3.0:
-                    self.print_detailed_status(frame_count, trajectory, map_size, motion_stats, start_time)
+                    self.print_alignment_status(frame_count, visual_trajectory, imu_trajectory,
+                                                map_size, motion_stats, start_time)
                     last_stats_time = current_time
 
                 # Check for quit
@@ -100,98 +102,129 @@ class EnhancedSLAMSystem:
             self.save_enhanced_session(session_name)
             self.cleanup()
 
-    def show_enhanced_frame(self, rgb, motion_stats, frame_count):
-        """Show RGB frame with motion detection overlay"""
-        display_img = rgb.copy()
-
-        # Add motion status overlay
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.6
-        thickness = 2
-
-        # Get recent motion log entry
-        if hasattr(self.slam, 'motion_log') and self.slam.motion_log:
-            recent_motion = self.slam.motion_log[-1]
-
-            # Motion status
-            motion_text = "MOTION" if recent_motion['motion_detected'] else "STATIONARY"
-            motion_color = (0, 255, 0) if recent_motion['motion_detected'] else (0, 0, 255)
-            cv2.putText(display_img, f"Status: {motion_text}", (10, 30), font, font_scale, motion_color, thickness)
-
-            # Agreement status
-            agreement = recent_motion['agreement']
-            agreement_color = (0, 255, 0) if 'agree' in agreement else (0, 165, 255)
-            cv2.putText(display_img, f"Agreement: {agreement}", (10, 55), font, 0.5, agreement_color, 1)
-
-            # Visual and IMU indicators
-            visual_text = "V+" if recent_motion['visual_motion'] else "V-"
-            imu_text = "I+" if recent_motion['imu_motion'] else "I-"
-            cv2.putText(display_img, f"{visual_text} {imu_text}", (10, 75), font, 0.5, (255, 255, 255), 1)
-
-        # Motion statistics
-        if motion_stats:
-            drift_rate = motion_stats.get('drift_detection_rate', 0)
-            motion_rate = motion_stats.get('motion_rate', 0)
-
-            cv2.putText(display_img, f"Motion Rate: {motion_rate:.1%}", (10, 100), font, 0.5, (255, 255, 255), 1)
-            cv2.putText(display_img, f"Drift Rate: {drift_rate:.1%}", (10, 120), font, 0.5, (255, 255, 0), 1)
-
-        # Frame counter
-        cv2.putText(display_img, f"Frame: {frame_count}", (10, display_img.shape[0] - 10), font, 0.5, (128, 128, 128),
-                    1)
-
-        # Resize and show
-        display_img = cv2.resize(display_img, (480, 360))
-        cv2.imshow("Enhanced SLAM - Motion Detection", display_img)
-
-    def print_detailed_status(self, frame_count, trajectory, map_size, motion_stats, start_time):
-        """Print detailed status including motion analysis"""
+    def print_alignment_status(self, frame_count, visual_trajectory, imu_trajectory,
+                               map_size, motion_stats, start_time):
+        """Print detailed status including trajectory alignment"""
         elapsed = time.time() - start_time
         avg_fps = frame_count / elapsed
 
-        print(f"\n=== Status Update (Frame {frame_count}) ===")
+        print(f"\n=== Alignment Status (Frame {frame_count}) ===")
         print(f"Runtime: {elapsed:.1f}s | FPS: {avg_fps:.1f}")
-        print(f"Trajectory: {len(trajectory)} poses | Map: {map_size} points")
+        print(f"Map: {map_size} points")
 
+        # Trajectory information
+        print(f"Trajectories:")
+        print(f"  Visual SLAM (GREEN): {len(visual_trajectory)} poses")
+        print(f"  IMU (RED): {len(imu_trajectory)} poses")
+
+        # Scale alignment info
+        if motion_stats and 'scale_factor' in motion_stats:
+            scale_factor = motion_stats['scale_factor']
+            print(f"  Scale Factor: {scale_factor:.3f}")
+
+            if 0.8 <= scale_factor <= 1.2:
+                print(f"  Scale Status: ✓ GOOD (near 1.0)")
+            elif 0.5 <= scale_factor <= 2.0:
+                print(f"  Scale Status: ⚠ FAIR (moderate difference)")
+            else:
+                print(f"  Scale Status: ✗ POOR (large difference)")
+
+        # Motion analysis
         if motion_stats:
             print(f"Motion Analysis:")
-            print(f"  Motion Rate: {motion_stats.get('motion_rate', 0):.1%} "
-                  f"({motion_stats.get('motion_frames', 0)}/{motion_stats.get('total_frames', 0)} frames)")
+            print(f"  Motion Rate: {motion_stats.get('motion_rate', 0):.1%}")
             print(f"  Drift Detection: {motion_stats.get('drift_detection_rate', 0):.1%}")
 
-            # Agreement breakdown
-            agreements = motion_stats.get('agreement_counts', {})
-            if agreements:
-                print(f"  Agreement Types:")
-                for agreement, count in agreements.items():
-                    percentage = count / motion_stats.get('total_frames', 1) * 100
-                    print(f"    {agreement}: {percentage:.1f}%")
+        # Trajectory quality assessment
+        if len(visual_trajectory) > 5 and len(imu_trajectory) > 5:
+            quality_metrics = self.assess_trajectory_quality(visual_trajectory, imu_trajectory)
+            print(f"Alignment Quality:")
+            print(f"  Recent Distance Ratio: {quality_metrics['distance_ratio']:.2f}")
+            if 0.8 <= quality_metrics['distance_ratio'] <= 1.2:
+                print(f"  Alignment Status: ✓ GOOD")
+            else:
+                print(f"  Alignment Status: ⚠ Needs attention")
 
-        print("=" * 40)
+        print("=" * 45)
+
+    def assess_trajectory_quality(self, visual_trajectory, imu_trajectory):
+        """Assess the quality of trajectory alignment"""
+        # Get recent segments for comparison
+        recent_visual = visual_trajectory[-10:] if len(visual_trajectory) >= 10 else visual_trajectory
+        recent_imu = imu_trajectory[-10:] if len(imu_trajectory) >= 10 else imu_trajectory
+
+        # Calculate distances
+        visual_dist = 0
+        for i in range(1, len(recent_visual)):
+            visual_dist += np.linalg.norm(recent_visual[i][:3, 3] - recent_visual[i - 1][:3, 3])
+
+        imu_dist = 0
+        for i in range(1, min(len(recent_imu), len(recent_visual))):
+            imu_dist += np.linalg.norm(recent_imu[i][:3, 3] - recent_imu[i - 1][:3, 3])
+
+        distance_ratio = imu_dist / visual_dist if visual_dist > 0.001 else 1.0
+
+        return {
+            'visual_distance': visual_dist,
+            'imu_distance': imu_dist,
+            'distance_ratio': distance_ratio
+        }
 
     def save_enhanced_session(self, session_name):
-        """Save enhanced session with motion analysis"""
+        """Save enhanced session with both trajectories"""
         if self.slam is not None:
             os.makedirs("../data/sessions", exist_ok=True)
             session_path = f"../data/sessions/{session_name}"
             self.slam.save_session(session_path)
 
-            # Print final motion analysis
+            # Print final alignment analysis
             motion_stats = self.slam.get_motion_stats()
-            print(f"\n=== Final Motion Analysis ===")
+            visual_trajectory = self.slam.get_trajectory()
+            imu_trajectory = self.slam.get_imu_trajectory()
+
+            print(f"\n=== Final Trajectory Alignment Analysis ===")
+            print(f"Session: {session_name}")
+
             if motion_stats:
-                print(f"Total frames processed: {motion_stats.get('total_frames', 0)}")
-                print(f"Motion detected: {motion_stats.get('motion_rate', 0):.1%} of time")
-                print(f"IMU drift filtered: {motion_stats.get('drift_detection_rate', 0):.1%} of time")
+                print(f"Processing Statistics:")
+                print(f"  Total frames: {motion_stats.get('total_frames', 0)}")
+                print(f"  Motion detected: {motion_stats.get('motion_rate', 0):.1%} of time")
+                print(f"  Scale factor: {motion_stats.get('scale_factor', 1.0):.3f}")
 
-                agreements = motion_stats.get('agreement_counts', {})
-                if agreements:
-                    print(f"Motion agreement breakdown:")
-                    for agreement, count in agreements.items():
-                        percentage = count / motion_stats.get('total_frames', 1) * 100
-                        print(f"  {agreement}: {percentage:.1f}%")
+                scale_factor = motion_stats.get('scale_factor', 1.0)
+                if abs(scale_factor - 1.0) < 0.1:
+                    print(f"  Scale alignment: ✓ EXCELLENT (very close to 1.0)")
+                elif abs(scale_factor - 1.0) < 0.3:
+                    print(f"  Scale alignment: ✓ GOOD")
+                elif abs(scale_factor - 1.0) < 0.5:
+                    print(f"  Scale alignment: ⚠ FAIR")
+                else:
+                    print(f"  Scale alignment: ✗ POOR")
 
-            print(f"Session saved to {session_path}")
+            print(f"Trajectory Lengths:")
+            print(f"  Visual SLAM: {len(visual_trajectory)} poses")
+            print(f"  IMU: {len(imu_trajectory)} poses")
+
+            if len(visual_trajectory) > 10 and len(imu_trajectory) > 10:
+                # Calculate total distances
+                visual_total_dist = 0
+                for i in range(1, len(visual_trajectory)):
+                    visual_total_dist += np.linalg.norm(
+                        visual_trajectory[i][:3, 3] - visual_trajectory[i - 1][:3, 3]
+                    )
+
+                imu_total_dist = 0
+                for i in range(1, min(len(imu_trajectory), len(visual_trajectory))):
+                    imu_total_dist += np.linalg.norm(
+                        imu_trajectory[i][:3, 3] - imu_trajectory[i - 1][:3, 3]
+                    )
+
+                print(f"Total Distances:")
+                print(f"  Visual SLAM: {visual_total_dist:.3f}m")
+                print(f"  IMU: {imu_total_dist:.3f}m")
+                print(f"  Ratio: {imu_total_dist / visual_total_dist:.3f}" if visual_total_dist > 0 else "  Ratio: N/A")
+
+            print(f"Session saved to: {session_path}")
 
     def cleanup(self):
         """Clean shutdown"""
@@ -199,11 +232,11 @@ class EnhancedSLAMSystem:
             self.camera.stop()
         if self.visualizer:
             self.visualizer.close()
-        print("Enhanced SLAM shutdown complete")
+        print("Enhanced SLAM with trajectory alignment shutdown complete")
 
 
 def create_enhanced_config():
-    """Create enhanced config with motion detection parameters"""
+    """Create enhanced config with motion detection and alignment parameters"""
     config = {
         "camera": {"width": 640, "height": 480, "fps": 30},
         "slam": {
@@ -220,10 +253,10 @@ def create_enhanced_config():
             "viz_points_limit": 15000,
             "update_every_n": 2,
             "show_trajectory": True,
-            "trajectory_every_n": 5
+            "trajectory_every_n": 3
         },
         "motion_detection": {
-            "imu_drift_threshold": 0.17078,  # From your test
+            "imu_drift_threshold": 0.17078,
             "visual_feature_threshold": 5.0,
             "visual_flow_threshold": 2.0,
             "confidence_thresholds": {
@@ -231,17 +264,26 @@ def create_enhanced_config():
                 "medium": 0.7,
                 "low": 0.4
             }
+        },
+        "trajectory_alignment": {
+            "scale_estimation_window": 20,
+            "scale_update_interval": 30,
+            "scale_smoothing_factor": 0.1
         }
     }
     return config
 
 
 def main():
-    print("Enhanced SLAM with Visual-IMU Motion Detection")
-    print("=" * 45)
-    print("This system uses your IMU drift baseline (0.17m/s) to filter")
-    print("IMU noise and only trusts visual motion detection.")
-    print("It will show real-time motion agreement analysis.")
+    print("Enhanced SLAM with Automatic Trajectory Alignment")
+    print("=" * 50)
+    print("This system automatically aligns visual SLAM and IMU trajectories")
+    print("by estimating scale factors in real-time.")
+    print("\nVisualization:")
+    print("- GREEN line: Visual SLAM trajectory (scale-corrected)")
+    print("- RED line: IMU trajectory")
+    print("- Point cloud: 3D map from visual SLAM")
+    print("\nThe system will show real-time scale factor and alignment quality.")
 
     # Setup directories
     os.makedirs("../config", exist_ok=True)
@@ -258,12 +300,12 @@ def main():
     # Initialize system
     system = EnhancedSLAMSystem(config_path)
 
-    print(f"\nIMU Drift Filtering: Using {0.17078:.5f} m/s threshold")
-    print("Visual motion detection: Feature matching + optical flow")
-    print("Starting enhanced SLAM...\n")
+    print(f"\nStarting enhanced SLAM with trajectory alignment...")
+    print("Move the camera around to see both trajectories develop.")
+    print("The system will automatically estimate and apply scale alignment.\n")
 
     try:
-        system.run_enhanced_slam("enhanced_live")
+        system.run_enhanced_slam("aligned_trajectory_test")
     except Exception as e:
         print(f"Enhanced SLAM failed: {e}")
         import traceback

@@ -19,25 +19,33 @@ class MinimalVisualizer:
 
         # Initialize visualizer
         self.vis = o3d.visualization.Visualizer()
-        self.vis.create_window("Minimal SLAM", width=800, height=600)
+        self.vis.create_window("Enhanced SLAM - Dual Trajectory", width=1000, height=700)
 
         # Setup rendering
         opt = self.vis.get_render_option()
         opt.point_size = self.params['point_size']
         opt.background_color = np.array(config.get('viz', {}).get('background', [0, 0, 0]))
 
-        # Single geometry for map
+        # Map geometry
         self.map_pcd = o3d.geometry.PointCloud()
         self.map_added = False
 
-        # Optional trajectory line
-        self.traj_line = None
-        self.traj_added = False
+        # Visual SLAM trajectory (GREEN)
+        self.visual_traj_line = None
+        self.visual_traj_added = False
+
+        # IMU trajectory (RED)
+        self.imu_traj_line = None
+        self.imu_traj_added = False
+
+        # Coordinate frame for reference
+        self.coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
+        self.vis.add_geometry(self.coord_frame)
 
         # Frame counter
         self.frame_count = 0
 
-        print(f"Minimal Visualizer initialized with params: {self.params}")
+        print(f"Enhanced Visualizer initialized - Visual trajectory: GREEN, IMU trajectory: RED")
 
     def update_map(self, point_cloud):
         """Update map visualization with minimal operations"""
@@ -53,7 +61,6 @@ class MinimalVisualizer:
         # Limit points for visualization performance
         viz_pcd = point_cloud
         if len(point_cloud.points) > self.params['viz_points_limit']:
-            # Simple random downsampling for visualization
             indices = np.random.choice(
                 len(point_cloud.points),
                 self.params['viz_points_limit'],
@@ -67,14 +74,13 @@ class MinimalVisualizer:
             self.vis.add_geometry(self.map_pcd)
             self.map_added = True
         else:
-            # Direct point and color update - fastest method
             self.map_pcd.points = viz_pcd.points
             if len(viz_pcd.colors) > 0:
                 self.map_pcd.colors = viz_pcd.colors
             self.vis.update_geometry(self.map_pcd)
 
-    def update_trajectory(self, poses):
-        """Update trajectory with minimal line visualization"""
+    def update_visual_trajectory(self, poses):
+        """Update visual SLAM trajectory (GREEN)"""
         if not self.params['show_trajectory'] or len(poses) < 2:
             return
 
@@ -89,34 +95,86 @@ class MinimalVisualizer:
             return
 
         # Create or update line set
-        if not self.traj_added:
-            self.traj_line = o3d.geometry.LineSet()
-            self.vis.add_geometry(self.traj_line)
-            self.traj_added = True
+        if not self.visual_traj_added:
+            self.visual_traj_line = o3d.geometry.LineSet()
+            self.vis.add_geometry(self.visual_traj_line)
+            self.visual_traj_added = True
 
-        # Simple line creation
+        # Create lines
         points = o3d.utility.Vector3dVector(positions)
         lines = [[i, i + 1] for i in range(len(positions) - 1)]
 
-        self.traj_line.points = points
-        self.traj_line.lines = o3d.utility.Vector2iVector(lines)
+        self.visual_traj_line.points = points
+        self.visual_traj_line.lines = o3d.utility.Vector2iVector(lines)
 
-        # Single color for all lines - faster than individual colors
+        # GREEN color for visual trajectory
+        colors = [[0, 1, 0]] * len(lines)  # Green trajectory
+        self.visual_traj_line.colors = o3d.utility.Vector3dVector(colors)
+
+        self.vis.update_geometry(self.visual_traj_line)
+
+    def update_imu_trajectory(self, poses):
+        """Update IMU trajectory (RED)"""
+        if not self.params['show_trajectory'] or len(poses) < 2:
+            return
+
+        # Extract positions
+        positions = [pose[:3, 3] for pose in poses[::max(1, self.params['trajectory_every_n'] // 2)]]
+
+        if len(positions) < 2:
+            return
+
+        # Create or update line set
+        if not self.imu_traj_added:
+            self.imu_traj_line = o3d.geometry.LineSet()
+            self.vis.add_geometry(self.imu_traj_line)
+            self.imu_traj_added = True
+
+        # Create lines
+        points = o3d.utility.Vector3dVector(positions)
+        lines = [[i, i + 1] for i in range(len(positions) - 1)]
+
+        self.imu_traj_line.points = points
+        self.imu_traj_line.lines = o3d.utility.Vector2iVector(lines)
+
+        # RED color for IMU trajectory
         colors = [[1, 0, 0]] * len(lines)  # Red trajectory
-        self.traj_line.colors = o3d.utility.Vector3dVector(colors)
+        self.imu_traj_line.colors = o3d.utility.Vector3dVector(colors)
 
-        self.vis.update_geometry(self.traj_line)
+        self.vis.update_geometry(self.imu_traj_line)
 
-    def show_frame(self, rgb_image):
-        """Show current RGB frame with minimal processing"""
+    def update_trajectory(self, poses):
+        """Legacy method - now calls visual trajectory update"""
+        self.update_visual_trajectory(poses)
+
+    def show_frame(self, rgb_image, motion_stats=None, frame_count=0):
+        """Show current RGB frame with alignment info"""
         if rgb_image is not None:
-            # Resize for performance
-            display_img = cv2.resize(rgb_image, (320, 240))
-            cv2.imshow("Current View", display_img)
+            display_img = cv2.resize(rgb_image, (480, 360))
+
+            # Add alignment information overlay
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.6
+            thickness = 2
+
+            # Scale factor display
+            if motion_stats and 'scale_factor' in motion_stats:
+                scale_text = f"Scale Factor: {motion_stats['scale_factor']:.3f}"
+                cv2.putText(display_img, scale_text, (10, 30), font, font_scale, (0, 255, 255), thickness)
+
+            # Trajectory info
+            cv2.putText(display_img, "GREEN: Visual SLAM", (10, 60), font, 0.5, (0, 255, 0), 1)
+            cv2.putText(display_img, "RED: IMU Trajectory", (10, 80), font, 0.5, (0, 0, 255), 1)
+
+            # Frame counter
+            cv2.putText(display_img, f"Frame: {frame_count}", (10, display_img.shape[0] - 10),
+                        font, 0.5, (128, 128, 128), 1)
+
+            cv2.imshow("Enhanced SLAM - Trajectory Alignment", display_img)
             cv2.waitKey(1)
 
     def spin_once(self):
-        """Update visualization once - minimal operations"""
+        """Update visualization once"""
         self.vis.poll_events()
         self.vis.update_renderer()
         return True
@@ -142,14 +200,40 @@ class MinimalVisualizer:
         """Reset camera view to default"""
         self.vis.reset_view_point(True)
 
+    def get_alignment_quality_metrics(self, visual_poses, imu_poses):
+        """Calculate alignment quality metrics for display"""
+        if len(visual_poses) < 5 or len(imu_poses) < 5:
+            return {}
+
+        # Take recent poses for comparison
+        recent_visual = visual_poses[-5:]
+        recent_imu = imu_poses[-5:]
+
+        # Calculate recent distances
+        visual_dist = 0
+        imu_dist = 0
+
+        for i in range(1, len(recent_visual)):
+            visual_dist += np.linalg.norm(recent_visual[i][:3, 3] - recent_visual[i - 1][:3, 3])
+
+        for i in range(1, min(len(recent_imu), len(recent_visual))):
+            imu_dist += np.linalg.norm(recent_imu[i][:3, 3] - recent_imu[i - 1][:3, 3])
+
+        alignment_ratio = imu_dist / visual_dist if visual_dist > 0 else 0
+
+        return {
+            'visual_distance': visual_dist,
+            'imu_distance': imu_dist,
+            'alignment_ratio': alignment_ratio
+        }
+
 
 class PerformanceMonitor:
-    """Simple performance monitoring for tuning"""
+    """Performance monitoring for tuning"""
 
     def __init__(self):
         self.frame_times = []
         self.map_sizes = []
-        self.last_print = 0
 
     def log_frame(self, frame_time, map_size):
         self.frame_times.append(frame_time)
@@ -173,19 +257,19 @@ class PerformanceMonitor:
 
         if avg_time > 0.05:  # Slower than 20 FPS
             suggestions.update({
-                'voxel_size': 0.08,  # Increase for fewer points
-                'max_points': 15000,  # Reduce map size
-                'update_every_n': 3,  # Update less frequently
-                'viz_points_limit': 10000  # Reduce viz points
+                'voxel_size': 0.08,
+                'max_points': 15000,
+                'update_every_n': 3,
+                'viz_points_limit': 10000
             })
             print("Performance suggestions: Increase voxel_size, reduce max_points")
 
         elif avg_time < 0.02:  # Faster than 50 FPS
             suggestions.update({
-                'voxel_size': 0.03,  # Decrease for more detail
-                'max_points': 30000,  # Increase map size
-                'update_every_n': 1,  # Update every frame
-                'viz_points_limit': 20000  # More viz points
+                'voxel_size': 0.03,
+                'max_points': 30000,
+                'update_every_n': 1,
+                'viz_points_limit': 20000
             })
             print("Performance suggestions: Decrease voxel_size, increase max_points")
 
@@ -193,7 +277,7 @@ class PerformanceMonitor:
 
 
 def main():
-    """Test minimal visualizer"""
+    """Test dual trajectory visualizer"""
     import time
 
     # Test with synthetic data
@@ -210,42 +294,47 @@ def main():
     viz = MinimalVisualizer(config)
     monitor = PerformanceMonitor()
 
-    print("Testing minimal visualizer with synthetic data...")
+    print("Testing dual trajectory visualizer...")
 
-    # Create test trajectory and point clouds
+    # Create test trajectories
     for i in range(100):
         start_time = time.time()
 
         # Create test point cloud
-        points = np.random.random((1000, 3)) * 2 - 1  # Random points in [-1,1]^3
+        points = np.random.random((1000, 3)) * 2 - 1
         colors = np.random.random((1000, 3))
 
         test_pcd = o3d.geometry.PointCloud()
         test_pcd.points = o3d.utility.Vector3dVector(points)
         test_pcd.colors = o3d.utility.Vector3dVector(colors)
 
-        # Create test trajectory
-        poses = []
+        # Create test visual trajectory (circular)
+        visual_poses = []
         for j in range(i + 1):
             pose = np.eye(4)
-            pose[:3, 3] = [j * 0.1, 0, 0]  # Simple linear trajectory
-            poses.append(pose)
+            angle = j * 0.1
+            pose[:3, 3] = [np.cos(angle) * 0.5, np.sin(angle) * 0.5, 0]
+            visual_poses.append(pose)
+
+        # Create test IMU trajectory (slightly different)
+        imu_poses = []
+        for j in range(i + 1):
+            pose = np.eye(4)
+            angle = j * 0.1
+            # Slightly different scale and offset
+            pose[:3, 3] = [np.cos(angle) * 0.7 + 0.1, np.sin(angle) * 0.7, j * 0.01]
+            imu_poses.append(pose)
 
         # Update visualization
         viz.update_map(test_pcd)
-        viz.update_trajectory(poses)
+        viz.update_visual_trajectory(visual_poses)
+        viz.update_imu_trajectory(imu_poses)
         viz.spin_once()
 
         frame_time = time.time() - start_time
         monitor.log_frame(frame_time, len(points))
 
-        # Auto-tune parameters based on performance
-        if i == 60:
-            suggestions = monitor.suggest_params()
-            if suggestions:
-                viz.update_params(**suggestions)
-
-        time.sleep(0.01)  # Small delay
+        time.sleep(0.05)
 
     print("Test complete - close window to exit")
     while viz.spin_once():
