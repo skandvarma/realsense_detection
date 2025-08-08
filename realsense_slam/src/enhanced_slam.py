@@ -4,6 +4,7 @@ import json
 import cv2
 import time
 from motion_detector import VisualIMUMotionDetector
+from coordinate_aligner import CoordinateFrameAligner  # Add this import
 
 
 class EnhancedMinimalSLAM:
@@ -13,6 +14,9 @@ class EnhancedMinimalSLAM:
 
         # Initialize motion detector
         self.motion_detector = VisualIMUMotionDetector()
+
+        # ADD THIS: Initialize coordinate aligner
+        self.coordinate_aligner = CoordinateFrameAligner()
 
         # SLAM parameters (same as before)
         self.params = {
@@ -45,10 +49,10 @@ class EnhancedMinimalSLAM:
             intrinsics[0, 2], intrinsics[1, 2]
         )
 
-        print("Enhanced SLAM with Visual-IMU motion detection initialized")
+        print("Enhanced SLAM with coordinate alignment initialized")
 
     def create_point_cloud(self, rgb, depth):
-        """Create point cloud from RGB-D (same as before)"""
+        """Create point cloud from RGB-D and align to SLAM frame"""
         color_o3d = o3d.geometry.Image(cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB))
         depth_o3d = o3d.geometry.Image(depth.astype(np.float32))
 
@@ -63,6 +67,9 @@ class EnhancedMinimalSLAM:
 
         if len(pcd.points) > 0:
             pcd = pcd.voxel_down_sample(self.params['voxel_size'])
+
+            # APPLY COORDINATE ALIGNMENT - This is the key fix!
+            pcd = self.coordinate_aligner.align_point_cloud(pcd)
 
         return pcd
 
@@ -85,6 +92,44 @@ class EnhancedMinimalSLAM:
 
         return result.fitness > 0.1, result.transformation
 
+    def process_slam_update(self, rgb, depth, motion_result):
+        """Process SLAM update when motion is detected"""
+        # Create point cloud (now properly aligned)
+        current_pcd = self.create_point_cloud(rgb, depth)
+
+        if len(current_pcd.points) == 0:
+            return
+
+        # Pose estimation only if we have previous cloud
+        if self.prev_cloud is not None:
+            success, transform = self.estimate_pose(current_pcd, self.prev_cloud)
+
+            if success:
+                # Validate transform with motion detection confidence
+                transform_valid = self.validate_transform(transform, motion_result)
+
+                if transform_valid:
+                    # APPLY COORDINATE ALIGNMENT to pose transformation
+                    aligned_transform = self.coordinate_aligner.align_pose(transform)
+
+                    # Update pose
+                    self.current_pose = np.dot(self.current_pose, aligned_transform)
+                    self.trajectory.append(self.current_pose.copy())
+                else:
+                    # Reject transform, keep same pose
+                    self.trajectory.append(self.current_pose.copy())
+            else:
+                # ICP failed, but motion was detected - keep same pose
+                self.trajectory.append(self.current_pose.copy())
+
+        # Accumulate to map less frequently
+        if self.frame_count % self.params['accumulate_every_n'] == 0:
+            self.accumulate_to_map(current_pcd)
+
+        # Store for next frame
+        self.prev_cloud = current_pcd
+
+    # Rest of the methods remain the same...
     def process_frame(self, rgb, depth, accel=None, gyro=None):
         """Enhanced frame processing with motion detection"""
         self.frame_count += 1
@@ -136,40 +181,6 @@ class EnhancedMinimalSLAM:
             'decision': motion_decision
         }
 
-    def process_slam_update(self, rgb, depth, motion_result):
-        """Process SLAM update when motion is detected"""
-        # Create point cloud
-        current_pcd = self.create_point_cloud(rgb, depth)
-
-        if len(current_pcd.points) == 0:
-            return
-
-        # Pose estimation only if we have previous cloud
-        if self.prev_cloud is not None:
-            success, transform = self.estimate_pose(current_pcd, self.prev_cloud)
-
-            if success:
-                # Validate transform with motion detection confidence
-                transform_valid = self.validate_transform(transform, motion_result)
-
-                if transform_valid:
-                    # Update pose
-                    self.current_pose = np.dot(self.current_pose, transform)
-                    self.trajectory.append(self.current_pose.copy())
-                else:
-                    # Reject transform, keep same pose
-                    self.trajectory.append(self.current_pose.copy())
-            else:
-                # ICP failed, but motion was detected - keep same pose
-                self.trajectory.append(self.current_pose.copy())
-
-        # Accumulate to map less frequently
-        if self.frame_count % self.params['accumulate_every_n'] == 0:
-            self.accumulate_to_map(current_pcd)
-
-        # Store for next frame
-        self.prev_cloud = current_pcd
-
     def validate_transform(self, transform, motion_result):
         """Validate transform against motion detection"""
         # Extract translation and rotation from transform
@@ -181,17 +192,14 @@ class EnhancedMinimalSLAM:
 
         # Validation thresholds based on motion type
         if motion_result['decision']['agreement'] == 'both_agree_motion':
-            # High confidence - allow larger movements
-            max_translation = 0.2  # 20cm
-            max_rotation = 0.5  # ~30 degrees
+            max_translation = 0.2
+            max_rotation = 0.5
         elif motion_result['decision']['agreement'] == 'visual_only':
-            # Medium confidence - be more conservative
-            max_translation = 0.1  # 10cm
-            max_rotation = 0.3  # ~17 degrees
+            max_translation = 0.1
+            max_rotation = 0.3
         else:
-            # Low confidence - very conservative
-            max_translation = 0.05  # 5cm
-            max_rotation = 0.2  # ~11 degrees
+            max_translation = 0.05
+            max_rotation = 0.2
 
         # Validate
         if translation > max_translation or rotation_angle > max_rotation:
@@ -200,7 +208,7 @@ class EnhancedMinimalSLAM:
         return True
 
     def accumulate_to_map(self, pcd):
-        """Accumulate point cloud to map (same as before)"""
+        """Accumulate point cloud to map (already aligned)"""
         pcd_global = pcd.transform(self.current_pose)
         self.map_cloud += pcd_global
 
@@ -226,19 +234,17 @@ class EnhancedMinimalSLAM:
         if len(self.motion_log) < 10:
             return {}
 
-        recent_log = self.motion_log[-100:]  # Last 100 frames
+        recent_log = self.motion_log[-100:]
 
         total_frames = len(recent_log)
         motion_frames = sum(1 for entry in recent_log if entry['motion_detected'])
         stationary_frames = total_frames - motion_frames
 
-        # Agreement analysis
         agreements = [entry['agreement'] for entry in recent_log]
         agreement_counts = {}
         for agreement in agreements:
             agreement_counts[agreement] = agreement_counts.get(agreement, 0) + 1
 
-        # Drift detection rate
         drift_detections = sum(1 for entry in recent_log if entry['agreement'] == 'imu_drift_detected')
         drift_rate = drift_detections / total_frames if total_frames > 0 else 0
 
@@ -253,22 +259,19 @@ class EnhancedMinimalSLAM:
 
     def save_session(self, filename):
         """Save session with motion analysis"""
-        # Save point cloud
         o3d.io.write_point_cloud(f"{filename}_map.ply", self.map_cloud)
 
-        # Save trajectory and motion data
         session_data = {
             "poses": [pose.tolist() for pose in self.trajectory],
             "frame_count": self.frame_count,
             "params": self.params,
             "motion_stats": self.get_motion_stats(),
-            "motion_log": self.motion_log[-1000:]  # Last 1000 entries
+            "motion_log": self.motion_log[-1000:]
         }
 
         with open(f"{filename}_trajectory.json", 'w') as f:
             json.dump(session_data, f, indent=2)
 
-        # Save motion log separately for analysis
         with open(f"{filename}_motion_log.json", 'w') as f:
             json.dump(self.motion_log, f, indent=2)
 
