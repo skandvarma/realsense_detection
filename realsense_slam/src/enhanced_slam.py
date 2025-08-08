@@ -46,6 +46,13 @@ class EnhancedMinimalSLAM:
         self.scale_estimation_window = 20  # Use last 20 poses for scale estimation
         self.last_scale_update = 0
 
+        # MINIMAL ADDITION: Enhanced scale information tracking
+        self.scale_history = []
+        self.scale_confidence = 0.0
+        self.scale_stability_count = 0
+        self.cumulative_visual_distance = 0.0
+        self.cumulative_imu_distance = 0.0
+
         # Motion tracking
         self.motion_log = []
         self.stationary_count = 0
@@ -58,7 +65,7 @@ class EnhancedMinimalSLAM:
             intrinsics[0, 2], intrinsics[1, 2]
         )
 
-        print("Enhanced SLAM with minimal trajectory alignment initialized")
+        print("Enhanced SLAM with detailed scale information initialized")
 
     def update_imu_trajectory(self, accel, gyro, dt):
         """IMU trajectory tracking with proper coordinate alignment"""
@@ -88,7 +95,12 @@ class EnhancedMinimalSLAM:
             self.imu_velocity += world_accel * dt
             self.imu_velocity *= 0.95  # Damping factor
 
+            prev_position = self.imu_position.copy()
             self.imu_position += self.imu_velocity * dt
+
+            # MINIMAL ADDITION: Track cumulative IMU distance
+            imu_step_distance = np.linalg.norm(self.imu_position - prev_position)
+            self.cumulative_imu_distance += imu_step_distance
 
             # Store in trajectory
             self.imu_trajectory.append(self.imu_position.copy())
@@ -100,7 +112,7 @@ class EnhancedMinimalSLAM:
                 self.trajectory_timestamps.pop(0)
 
     def estimate_scale_factor(self):
-        """MINIMAL scale estimation between visual and IMU trajectories"""
+        """Enhanced scale estimation with confidence tracking"""
         if len(self.trajectory) < self.scale_estimation_window:
             return
 
@@ -119,7 +131,11 @@ class EnhancedMinimalSLAM:
             # Visual SLAM distance
             visual_pos1 = visual_poses[i - 1][:3, 3]
             visual_pos2 = visual_poses[i][:3, 3]
-            visual_distance += np.linalg.norm(visual_pos2 - visual_pos1)
+            visual_step = np.linalg.norm(visual_pos2 - visual_pos1)
+            visual_distance += visual_step
+
+            # MINIMAL ADDITION: Track cumulative visual distance
+            self.cumulative_visual_distance += visual_step
 
             # IMU distance
             imu_pos1 = imu_positions[i - 1]
@@ -130,12 +146,53 @@ class EnhancedMinimalSLAM:
         if visual_distance > 0.01 and imu_distance > 0.01:  # Minimum movement threshold
             new_scale = imu_distance / visual_distance
 
+            # MINIMAL ADDITION: Track scale history and confidence
+            self.scale_history.append(new_scale)
+            if len(self.scale_history) > 10:
+                self.scale_history.pop(0)
+
+            # Calculate scale confidence based on stability
+            if len(self.scale_history) >= 3:
+                scale_variance = np.var(self.scale_history[-3:])
+                self.scale_confidence = max(0.0, 1.0 - scale_variance * 10)
+
+                # Track stability
+                if scale_variance < 0.01:  # Low variance = stable
+                    self.scale_stability_count += 1
+                else:
+                    self.scale_stability_count = 0
+
             # Simple moving average for stability
             alpha = 0.1  # Smoothing factor
             self.scale_factor = alpha * new_scale + (1 - alpha) * self.scale_factor
 
-            print(
-                f"Scale factor updated: {self.scale_factor:.3f} (IMU: {imu_distance:.3f}m, Visual: {visual_distance:.3f}m)")
+            print(f"Scale factor updated: {self.scale_factor:.3f} "
+                  f"(IMU: {imu_distance:.3f}m, Visual: {visual_distance:.3f}m, "
+                  f"Confidence: {self.scale_confidence:.2f})")
+
+    # MINIMAL ADDITION: Enhanced scale information methods
+    def get_scale_info(self):
+        """Get comprehensive scale information"""
+        scale_quality = "Unknown"
+        if self.scale_confidence > 0.8:
+            scale_quality = "Excellent"
+        elif self.scale_confidence > 0.6:
+            scale_quality = "Good"
+        elif self.scale_confidence > 0.4:
+            scale_quality = "Fair"
+        else:
+            scale_quality = "Poor"
+
+        return {
+            'scale_factor': self.scale_factor,
+            'scale_confidence': self.scale_confidence,
+            'scale_quality': scale_quality,
+            'scale_stability_count': self.scale_stability_count,
+            'scale_history': self.scale_history.copy(),
+            'cumulative_visual_distance': self.cumulative_visual_distance,
+            'cumulative_imu_distance': self.cumulative_imu_distance,
+            'total_distance_ratio': self.cumulative_imu_distance / max(0.001, self.cumulative_visual_distance)
+        }
 
     def get_aligned_trajectory(self):
         """Return visual trajectory aligned with IMU scale"""
@@ -333,7 +390,7 @@ class EnhancedMinimalSLAM:
         return self.get_imu_trajectory_poses()
 
     def get_motion_stats(self):
-        """Get motion detection statistics"""
+        """Get motion detection statistics with enhanced scale information"""
         if len(self.motion_log) < 10:
             return {}
 
@@ -349,24 +406,31 @@ class EnhancedMinimalSLAM:
         drift_detections = sum(1 for entry in recent_log if entry['agreement'] == 'imu_drift_detected')
         drift_rate = drift_detections / total_frames if total_frames > 0 else 0
 
+        # MINIMAL ADDITION: Include detailed scale information
+        scale_info = self.get_scale_info()
+
         return {
             'total_frames': total_frames,
             'motion_frames': motion_frames,
             'motion_rate': motion_frames / total_frames if total_frames > 0 else 0,
             'drift_detection_rate': drift_rate,
             'agreement_counts': agreement_counts,
-            'scale_factor': self.scale_factor  # ADDED: Include scale factor in stats
+            'scale_factor': self.scale_factor,
+            'scale_info': scale_info  # Enhanced scale information
         }
 
     def save_session(self, filename):
-        """Save session with motion analysis and alignment data"""
+        """Save session with comprehensive scale information"""
         o3d.io.write_point_cloud(f"{filename}_map.ply", self.map_cloud)
 
-        # Save both trajectories
+        # MINIMAL ADDITION: Enhanced session data with scale information
+        scale_info = self.get_scale_info()
+
         session_data = {
             "visual_poses": [pose.tolist() for pose in self.get_aligned_trajectory()],
             "imu_poses": [pose.tolist() for pose in self.get_imu_trajectory()],
             "scale_factor": self.scale_factor,
+            "scale_info": scale_info,  # Comprehensive scale information
             "frame_count": self.frame_count,
             "params": self.params,
             "motion_stats": self.get_motion_stats(),
@@ -379,17 +443,23 @@ class EnhancedMinimalSLAM:
         with open(f"{filename}_motion_log.json", 'w') as f:
             json.dump(self.motion_log, f, indent=2)
 
-        print(f"Session saved with scale factor: {self.scale_factor:.3f}")
+        # MINIMAL ADDITION: Print detailed scale information
+        print(f"Session saved with comprehensive scale information:")
+        print(f"  Scale factor: {self.scale_factor:.3f}")
+        print(f"  Scale confidence: {scale_info['scale_confidence']:.2f}")
+        print(f"  Scale quality: {scale_info['scale_quality']}")
+        print(f"  Total visual distance: {scale_info['cumulative_visual_distance']:.3f}m")
+        print(f"  Total IMU distance: {scale_info['cumulative_imu_distance']:.3f}m")
 
 
 def main():
-    """Test enhanced SLAM with trajectory alignment"""
+    """Test enhanced SLAM with detailed scale information"""
     with open('../config/config.json', 'r') as f:
         config = json.load(f)
 
     from camera import D435iCamera
 
-    print("Testing Enhanced SLAM with Trajectory Alignment...")
+    print("Testing Enhanced SLAM with Detailed Scale Information...")
     camera = D435iCamera(config)
     intrinsics = camera.get_intrinsics()
     slam = EnhancedMinimalSLAM(intrinsics, config)
@@ -405,14 +475,16 @@ def main():
 
                 if i % 30 == 0:
                     stats = slam.get_motion_stats()
+                    scale_info = stats.get('scale_info', {})
                     print(f"Frame {i}: "
                           f"Visual trajectory: {len(slam.get_trajectory())} poses, "
                           f"IMU trajectory: {len(slam.get_imu_trajectory())} poses, "
-                          f"Scale factor: {stats.get('scale_factor', 1.0):.3f}, "
+                          f"Scale factor: {stats.get('scale_factor', 1.0):.3f} "
+                          f"({scale_info.get('scale_quality', 'Unknown')}), "
                           f"Map points: {len(slam.get_map().points)}")
 
-        slam.save_session("../data/sessions/aligned_test")
-        print("Enhanced SLAM with alignment test complete")
+        slam.save_session("../data/sessions/enhanced_scale_test")
+        print("Enhanced SLAM with detailed scale information test complete")
 
     finally:
         camera.stop()

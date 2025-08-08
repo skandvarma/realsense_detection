@@ -47,7 +47,11 @@ class CoordinateFrameAligner:
         return pcd.transform(self.camera_to_slam)
 
     def align_pose(self, pose_camera_frame):
-        """Transform pose from camera frame to aligned frame"""
+        # MINIMAL FIX: Check if pose represents significant motion
+        translation_magnitude = np.linalg.norm(pose_camera_frame[:3, 3])
+        if translation_magnitude < 0.005:  # Less than 5mm - likely noise
+            return np.eye(4)  # Return identity to prevent noise amplification
+
         return np.dot(self.camera_to_slam, pose_camera_frame)
 
     def align_imu_trajectory_to_visual(self, imu_poses):
