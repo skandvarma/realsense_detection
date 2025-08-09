@@ -9,7 +9,7 @@ class MinimalVisualizer:
 
         # Performance tuning parameters
         self.params = {
-            'viz_points_limit': config.get('viz', {}).get('viz_points_limit', 15000),
+            # 'viz_points_limit': config.get('viz', {}).get('viz_points_limit', 1000000000000000000000000000),
             'update_every_n': config.get('viz', {}).get('update_every_n', 2),
             'show_trajectory': config.get('viz', {}).get('show_trajectory', True),
             'show_current_frame': config.get('viz', {}).get('show_current_frame', False),
@@ -48,27 +48,18 @@ class MinimalVisualizer:
         print(f"Enhanced Visualizer initialized - Visual trajectory: GREEN, IMU trajectory: RED")
 
     def update_map(self, point_cloud):
-        """Update map visualization with minimal operations"""
+        """Update map visualization"""
         self.frame_count += 1
 
-        # Skip updates for performance
         if self.frame_count % self.params['update_every_n'] != 0:
             return
 
         if point_cloud is None or len(point_cloud.points) == 0:
             return
 
-        # Limit points for visualization performance
+        # Always use full point cloud for visualization
         viz_pcd = point_cloud
-        if len(point_cloud.points) > self.params['viz_points_limit']:
-            indices = np.random.choice(
-                len(point_cloud.points),
-                self.params['viz_points_limit'],
-                replace=False
-            )
-            viz_pcd = point_cloud.select_by_index(indices)
 
-        # Update or add geometry
         if not self.map_added:
             self.map_pcd = viz_pcd
             self.vis.add_geometry(self.map_pcd)

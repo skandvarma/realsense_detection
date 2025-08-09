@@ -19,7 +19,7 @@ class EnhancedMinimalSLAM:
         # SLAM parameters
         self.params = {
             'voxel_size': config.get('slam', {}).get('voxel_size', 0.01),
-            'max_points': config.get('slam', {}).get('max_points', 120000),
+            'max_points': config.get('slam', {}).get('max_points', 120000000),
             'icp_threshold': config.get('slam', {}).get('icp_threshold', 0.02),
             'max_depth': config.get('slam', {}).get('max_depth', 3.0),
             'process_every_n': config.get('slam', {}).get('process_every_n', 1),
@@ -218,7 +218,7 @@ class EnhancedMinimalSLAM:
         return imu_poses
 
     def create_point_cloud(self, rgb, depth):
-        """Create point cloud from RGB-D and align to SLAM frame"""
+        """Create point cloud from RGB-D"""
         color_o3d = o3d.geometry.Image(cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB))
         depth_o3d = o3d.geometry.Image(depth.astype(np.float32))
 
@@ -233,8 +233,7 @@ class EnhancedMinimalSLAM:
 
         if len(pcd.points) > 0:
             pcd = pcd.voxel_down_sample(self.params['voxel_size'])
-            # Apply coordinate alignment
-            pcd = self.coordinate_aligner.align_point_cloud(pcd)
+            # REMOVED: coordinate alignment
 
         return pcd
 
@@ -243,19 +242,21 @@ class EnhancedMinimalSLAM:
         if len(source_pcd.points) < 100 or len(target_pcd.points) < 100:
             return False, np.eye(4)
 
+        # FIX: Correct parameter order (source, target not target, source)
         result = o3d.pipelines.registration.registration_icp(
-            target_pcd, source_pcd,
+            source_pcd, target_pcd,  # FIXED ORDER
             self.params['icp_threshold'],
             np.eye(4),
             o3d.pipelines.registration.TransformationEstimationPointToPoint(),
             o3d.pipelines.registration.ICPConvergenceCriteria(
                 relative_fitness=1e-6,
                 relative_rmse=1e-6,
-                max_iteration=10
+                max_iteration=30  # Increased from 10
             )
         )
 
         return result.fitness > 0.1, result.transformation
+
 
     def process_frame(self, rgb, depth, accel=None, gyro=None):
         """Enhanced frame processing with motion detection and trajectory alignment"""
@@ -319,6 +320,9 @@ class EnhancedMinimalSLAM:
         if len(current_pcd.points) == 0:
             return
 
+        # Debug: Check map before processing
+        map_before = len(self.map_cloud.points)
+
         if self.prev_cloud is not None:
             success, transform = self.estimate_pose(current_pcd, self.prev_cloud)
 
@@ -326,18 +330,23 @@ class EnhancedMinimalSLAM:
                 transform_valid = self.validate_transform(transform, motion_result)
 
                 if transform_valid:
-                    # Apply coordinate alignment to pose transformation
-                    aligned_transform = self.coordinate_aligner.align_pose(transform)
-                    self.current_pose = np.dot(aligned_transform, self.current_pose)
+                    self.current_pose = np.dot(self.current_pose, transform)
                     self.trajectory.append(self.current_pose.copy())
                 else:
                     self.trajectory.append(self.current_pose.copy())
             else:
                 self.trajectory.append(self.current_pose.copy())
+        else:
+            self.trajectory.append(self.current_pose.copy())
 
-        # Accumulate to map less frequently
-        self.accumulate_to_map(current_pcd)
-        print(f"Map points: {len(self.map_cloud.points)}")  # See if map is growing
+        # Accumulate to map
+        if self.frame_count % self.params.get('accumulate_every_n', 1) == 0:
+            self.accumulate_to_map(current_pcd)
+
+            # Debug: Verify map is growing
+            map_after = len(self.map_cloud.points)
+            if map_after <= map_before and map_before > 0:
+                print(f"WARNING: Map not growing! Before: {map_before}, After: {map_after}")
 
         self.prev_cloud = current_pcd
 
@@ -346,40 +355,38 @@ class EnhancedMinimalSLAM:
         translation = np.linalg.norm(transform[:3, 3])
         rotation_angle = np.arccos(np.clip((np.trace(transform[:3, :3]) - 1) / 2, -1, 1))
 
-        if motion_result['decision']['agreement'] == 'both_agree_motion':
-            max_translation = 0.2
-            max_rotation = 0.5
-        elif motion_result['decision']['agreement'] == 'visual_only':
-            max_translation = 0.1
-            max_rotation = 0.3
-        else:
-            max_translation = 0.05
-            max_rotation = 0.2
+        # RELAXED thresholds
+        max_translation = 0.5  # Increased from 0.2
+        max_rotation = 1.0  # Increased from 0.5
 
         return translation <= max_translation and rotation_angle <= max_rotation
 
     def accumulate_to_map(self, pcd):
-        """Accumulate point cloud to map - FIXED"""
-        # Copy the cloud to avoid reference issues
-        pcd_copy = o3d.geometry.PointCloud(pcd)
+        if len(pcd.points) == 0:
+            return
 
-        # Transform to world coordinates
-        pcd_world = pcd_copy.transform(self.current_pose)
+        # Copy and transform
+        pcd_world = o3d.geometry.PointCloud(pcd)
+        pcd_world.transform(self.current_pose)
+
+        # Track counts for debugging
+        old_count = len(self.map_cloud.points)
 
         # Add to map
-        if len(self.map_cloud.points) == 0:
-            # First cloud - initialize map
+        if old_count == 0:
             self.map_cloud = pcd_world
             print(f"Initialized map with {len(self.map_cloud.points)} points")
         else:
-            # Add to existing map
+            # CRITICAL: Actually accumulateq
             self.map_cloud += pcd_world
-            print(f"Map now has {len(self.map_cloud.points)} points")
+            new_count = len(self.map_cloud.points)
+            print(f"Accumulation: {old_count} + {len(pcd_world.points)} = {new_count}")
 
-        # Downsample if too large
-        if len(self.map_cloud.points) > self.params['max_points']:
-            self.map_cloud = self.map_cloud.voxel_down_sample(self.params['voxel_size'] * 2)
-            print(f"Downsampled to {len(self.map_cloud.points)} points")
+            # Only downsample if WAY over limit (2x)
+            if new_count > self.params['max_points'] * 2:
+                print(f"WARNING: Downsampling from {new_count} points")
+                self.map_cloud = self.map_cloud.voxel_down_sample(self.params['voxel_size'] * 1.2)
+                print(f"Downsampled to {len(self.map_cloud.points)} points")
 
     def get_map(self):
         return self.map_cloud
@@ -419,14 +426,14 @@ class EnhancedMinimalSLAM:
             'drift_detection_rate': drift_rate,
             'agreement_counts': agreement_counts,
             'scale_factor': self.scale_factor,
-            'scale_info': scale_info  # Enhanced scale information
+            'scale_info': scale_info  # scale information
         }
 
     def save_session(self, filename):
         """Save session with comprehensive scale information"""
         o3d.io.write_point_cloud(f"{filename}_map.ply", self.map_cloud)
 
-        # MINIMAL ADDITION: Enhanced session data with scale information
+        # session data with scale information
         scale_info = self.get_scale_info()
 
         session_data = {
