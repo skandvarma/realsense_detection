@@ -4,29 +4,29 @@ camera:
 
   # Stream Resolution Settings
   resolution:
-    width: 320
-    height: 240
+    width: 640
+    height: 480
 
   # Stream Configuration
   streams:
     color:
       enabled: true
-      width: 320
-      height: 240
-      framerate: 15
+      width: 640
+      height: 480
+      framerate: 30
       format: "RGB8"
 
     depth:
       enabled: true
-      width: 320
-      height: 240
-      framerate: 15
+      width: 640
+      height: 480
+      framerate: 30
       format: "Z16"
 
     infrared:
       enabled: false
-      width: 320
-      height: 240
+      width: 640
+      height: 480
       framerate: 30
       format: "Y8"
 
@@ -90,8 +90,8 @@ detection:
     model_name: "IDEA-Research/grounding-dino-base"
 
     # Detection Parameters
-    confidence_threshold: 0.7
-    max_detections: 100
+    confidence_threshold: 0.2
+    max_detections: 10
 
     # Input Configuration
     input_size: [640, 640]

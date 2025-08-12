@@ -208,7 +208,7 @@ class DETRDetector(BaseDetector):
                     self.logger.error("This will cause detection failures. Check model variant configuration.")
                     return False
                 else:
-                    self.logger.info("✅ Grounding DINO processor loaded correctly")
+                    self.logger.info("Grounding DINO processor loaded correctly")
             else:
                 self.logger.info(f"Loaded processor type: {type(self.processor)}")
 
@@ -244,7 +244,7 @@ class DETRDetector(BaseDetector):
 
             # Setup mixed precision
             if self.use_amp and self.device.type == 'cuda':
-                self.scaler = torch.cuda.amp.GradScaler()
+                self.scaler = torch.amp.GradScaler('cuda',)
 
             # Create CUDA stream
             if self.device.type == 'cuda':

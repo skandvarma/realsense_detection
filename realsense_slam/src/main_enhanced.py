@@ -3,24 +3,25 @@ import os
 import time
 import cv2
 import numpy as np
-from camera import D435iCamera
+from .camera import D435iCamera
 from enhanced_slam import EnhancedMinimalSLAM
 from visualizer import MinimalVisualizer, PerformanceMonitor
 
 
 class EnhancedSLAMSystem:
-    def __init__(self, config_path):
-        with open(config_path, 'r') as f:
-            self.config = json.load(f)
-
+    def __init__(self, config):  # Changed to take config dict directly
+        self.config = config
         self.camera = None
         self.slam = None
         self.visualizer = None
         self.monitor = PerformanceMonitor()
         self.running = False
 
-    def run_enhanced_slam(self, session_name):
-        print(f"Session: {session_name}")
+
+    def run_enhanced_slam(self, session_name=None, headless=False):
+        """Run enhanced SLAM with motion detection."""
+        if session_name:
+            print(f"Session: {session_name}")
         print("Controls: Press 'q' to quit")
         print("=" * 55)
 
@@ -28,7 +29,10 @@ class EnhancedSLAMSystem:
         self.camera = D435iCamera(self.config)
         intrinsics = self.camera.get_intrinsics()
         self.slam = EnhancedMinimalSLAM(intrinsics, self.config)
-        self.visualizer = MinimalVisualizer(self.config)
+
+        # Only create visualizer if we're running standalone
+        if not headless:
+            self.visualizer = MinimalVisualizer(self.config)
 
         self.running = True
         frame_count = 0
@@ -53,23 +57,25 @@ class EnhancedSLAMSystem:
                 depth_meters = depth.astype(np.float32) / 1000.0
                 self.slam.process_frame(rgb, depth_meters, accel, gyro)
 
-                # Update visualization
-                map_cloud = self.slam.get_map()
-                trajectory = self.slam.get_trajectory()
-
-                self.visualizer.update_map(map_cloud)
-                self.visualizer.update_trajectory(trajectory)
+                # Update visualization if running standalone
+                if not headless and self.visualizer:
+                    map_cloud = self.slam.get_map()
+                    trajectory = self.slam.get_trajectory()
+                    self.visualizer.update_map(map_cloud)
+                    self.visualizer.update_trajectory(trajectory)
+                    if not self.visualizer.spin_once():
+                        break
 
                 # Enhanced frame display with motion status
                 motion_stats = self.slam.get_motion_stats()
-                self.show_enhanced_frame(rgb, motion_stats, frame_count)
 
-                if not self.visualizer.spin_once():
-                    break
+                # Only show enhanced frame in standalone mode
+                if not headless:
+                    self.show_enhanced_frame(rgb, motion_stats, frame_count)
 
                 # Performance monitoring
                 frame_time = time.time() - frame_start
-                map_size = len(map_cloud.points) if map_cloud else 0
+                map_size = len(self.slam.get_map().points) if self.slam.get_map() else 0
                 self.monitor.log_frame(frame_time, map_size)
 
                 frame_count += 1
@@ -77,12 +83,14 @@ class EnhancedSLAMSystem:
                 # Detailed status every 3 seconds
                 current_time = time.time()
                 if current_time - last_stats_time >= 3.0:
+                    trajectory = self.slam.get_trajectory()
                     self.print_detailed_status(frame_count, trajectory, map_size, motion_stats, start_time)
                     last_stats_time = current_time
 
-                # Check for quit
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
+                # Check for quit in standalone mode
+                if not headless:
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
 
         except KeyboardInterrupt:
             print("\nStopped by user")
@@ -91,7 +99,8 @@ class EnhancedSLAMSystem:
             import traceback
             traceback.print_exc()
         finally:
-            self.save_enhanced_session(session_name)
+            if session_name:
+                self.save_enhanced_session(session_name)
             self.cleanup()
 
     def show_enhanced_frame(self, rgb, motion_stats, frame_count):
@@ -245,9 +254,12 @@ def main():
         with open(config_path, 'w') as f:
             json.dump(config, f, indent=2)
         print(f"Created enhanced config at {config_path}")
+    else:
+        with open(config_path, 'r') as f:
+            config = json.load(f)
 
     # Initialize system
-    system = EnhancedSLAMSystem(config_path)
+    system = EnhancedSLAMSystem(config)
 
     print(f"\nIMU Drift Filtering: Using {0.17078:.5f} m/s threshold")
     print("Visual motion detection: Feature matching + optical flow")

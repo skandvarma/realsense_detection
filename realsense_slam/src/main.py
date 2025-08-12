@@ -3,7 +3,10 @@ import os
 import time
 import cv2
 import numpy as np
-from camera import D435iCamera
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+from src.camera.realsense_manager import D435iCamera
 from slam import MinimalSLAM
 from visualizer import MinimalVisualizer, PerformanceMonitor
 

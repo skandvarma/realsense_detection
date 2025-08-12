@@ -3,24 +3,24 @@
 Example script demonstrating the complete CUDA-optimized detection pipeline with Grounding DINO support.
 """
 
+import argparse
 import os
 import sys
 import time
-import argparse
-import cv2
-import numpy as np
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+
+import cv2
+import numpy as np
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.utils.config import ConfigManager
-from src.utils.logger import get_logger, PerformanceMonitor
+from src.utils.logger import get_logger
 from src.camera.realsense_manager import RealSenseManager
 from src.camera.depth_processor import DepthProcessor
-from src.detection import DetectorFactory, DetectorWrapper, Postprocessor
-from src.detection import YOLO_AVAILABLE, DETR_AVAILABLE
+from src.detection import DetectorFactory, Postprocessor
 
 
 def create_test_setup(config_path: str = "config.yaml"):
@@ -569,11 +569,12 @@ def main():
                         help="Test detection on specific image")
     parser.add_argument("--prompt", "-p",
                         help="Text prompt for Grounding DINO (e.g., 'person . car . dog')")
-    parser.add_argument("--live", "-l", action="store_true",
-                        help="Run live detection test")
-    parser.add_argument("--duration", "-d", type=float, default=10.0,
+    parser.add_argument("--live", "-l", default=True, type=bool,
+                        help="Run live detection test (always True)")
+    parser.add_argument("--duration", "-d", type=float, default=1000000000.0,
                         help="Duration for live test (seconds)")
-    parser.add_argument("--show-video", action="store_true", help="Display live video during detection")
+    parser.add_argument("--show-video", default=True, type=bool,
+                        help="Display live video during detection (always True)")
     parser.add_argument("--save-frames", action="store_true", help="Save detection frames during live detection")
 
     args = parser.parse_args()

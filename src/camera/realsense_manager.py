@@ -1,5 +1,5 @@
 """
-Complete RealSense D435i camera management system.
+Complete RealSense D435i camera management system with SLAM compatibility.
 """
 
 import time
@@ -9,9 +9,26 @@ from typing import Dict, Any, Optional, Tuple, List
 from pathlib import Path
 import threading
 from dataclasses import dataclass
+import logging
+import os
+import sys
 
-from ..utils.logger import get_logger
-from ..utils.config import ConfigManager
+# Simple logger for standalone use
+def get_logger(name):
+    """Simple logger for standalone use."""
+    logger = logging.getLogger(name)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+    return logger
+
+# Simple config manager placeholder
+class ConfigManager:
+    """Simple config manager placeholder."""
+    pass
 
 
 @dataclass
@@ -35,6 +52,376 @@ class IntrinsicParameters:
     height: int
     distortion_model: str
     coeffs: List[float]
+
+
+# Singleton Camera Share Manager
+class CameraShareManager:
+    """Singleton manager for sharing camera device between multiple systems."""
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self):
+        if not hasattr(self, '_initialized'):
+            self.pipeline = None
+            self.config_rs = None
+            self.profile = None
+            self.align = None
+            self.intrinsics = None
+            self.depth_intrinsics = None
+            self.depth_scale = None
+            self.context = rs.context()
+            self.device = None
+
+            # Enhanced features
+            self.filters = {}
+            self.filter_enabled = {}
+
+            # Frame sharing with subscriber-specific buffers
+            self.latest_frames = {}
+            self.frame_lock = threading.Lock()
+            self.subscribers = {}
+            self.subscriber_frames = {}  # NEW: Individual frame buffers per subscriber
+            self.frame_thread = None
+            self.running = False
+
+            # IMU data
+            self.latest_accel = None
+            self.latest_gyro = None
+
+            # Error handling
+            self.retry_count = 0
+            self.max_retries = 3
+            self.last_frame_time = time.time()
+            self.is_streaming = False
+
+            # NEW: Frame distribution tracking
+            self.frame_counter = 0
+            self.subscriber_last_frame = {}  # Track last frame each subscriber received
+
+            self.logger = get_logger("CameraShareManager")
+            self._initialized = True
+            self.logger.info("Enhanced CameraShareManager initialized")
+
+    def initialize_camera(self, config):
+        """Initialize camera with config from first subscriber."""
+        if self.pipeline is not None and self.is_streaming:
+            self.logger.info("Camera already initialized, reusing existing instance")
+            return True  # Already initialized
+
+        try:
+            self.logger.info("Initializing shared camera...")
+
+            # Detect devices
+            devices = self._detect_devices()
+            if not devices:
+                self.logger.error("No RealSense devices detected")
+                return False
+
+            self.pipeline = rs.pipeline()
+            self.config_rs = rs.config()
+
+            # Use device serial if multiple devices
+            if len(devices) > 0:
+                device_serial = devices[0]['serial_number']
+                self.config_rs.enable_device(device_serial)
+                self.logger.info(f"Using device: {device_serial}")
+            try:
+                color_stream = self.profile.get_stream(rs.stream.color)
+                self.intrinsics = color_stream.as_video_stream_profile().get_intrinsics()
+                self.logger.info(f"Color intrinsics: fx={self.intrinsics.fx:.2f}, fy={self.intrinsics.fy:.2f}")
+            except Exception as e:
+                self.logger.error(f"Error getting intrinsics: {e}")
+                self.intrinsics = None
+
+            # Configure streams from SLAM config format
+            if 'camera' in config:
+                cam_config = config["camera"]
+                self.config_rs.enable_stream(
+                    rs.stream.depth,
+                    cam_config["width"],
+                    cam_config["height"],
+                    rs.format.z16,
+                    cam_config["fps"]
+                )
+                self.config_rs.enable_stream(
+                    rs.stream.color,
+                    cam_config["width"],
+                    cam_config["height"],
+                    rs.format.bgr8,
+                    cam_config["fps"]
+                )
+                self.config_rs.enable_stream(rs.stream.accel)
+                self.config_rs.enable_stream(rs.stream.gyro)
+            else:
+                # Default config
+                self.config_rs.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+                self.config_rs.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+                self.config_rs.enable_stream(rs.stream.accel)
+                self.config_rs.enable_stream(rs.stream.gyro)
+
+            # Enhanced features - setup filters
+            self._setup_filters()
+
+            # Start streaming
+            self.profile = self.pipeline.start(self.config_rs)
+            self.device = self.profile.get_device()
+
+            # Enable alignment
+            self.align = rs.align(rs.stream.color)
+
+            # Get intrinsics
+            color_stream = self.profile.get_stream(rs.stream.color)
+            self.intrinsics = color_stream.as_video_stream_profile().get_intrinsics()
+
+            # Enhanced: Get depth intrinsics and scale
+            depth_stream = self.profile.get_stream(rs.stream.depth)
+            self.depth_intrinsics = depth_stream.as_video_stream_profile().get_intrinsics()
+            depth_sensor = self.profile.get_device().first_depth_sensor()
+            self.depth_scale = depth_sensor.get_depth_scale()
+
+            # Start frame capture thread
+            self.running = True
+            self.is_streaming = True
+            self.frame_thread = threading.Thread(target=self._frame_capture_loop, daemon=True)
+            self.frame_thread.start()
+
+            self.logger.info("Shared camera initialized successfully")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Camera initialization failed: {e}")
+            self.cleanup()
+            return False
+
+    def _detect_devices(self):
+        """Detect available devices."""
+        devices = []
+        try:
+            device_list = self.context.query_devices()
+            for i, device in enumerate(device_list):
+                device_info = {
+                    'index': i,
+                    'name': device.get_info(rs.camera_info.name),
+                    'serial_number': device.get_info(rs.camera_info.serial_number),
+                    'firmware_version': device.get_info(rs.camera_info.firmware_version),
+                }
+                devices.append(device_info)
+                self.logger.info(f"Detected device {i}: {device_info['name']} (S/N: {device_info['serial_number']})")
+        except Exception as e:
+            self.logger.error(f"Error detecting devices: {e}")
+        return devices
+
+    def _setup_filters(self):
+        """Setup enhanced depth filters."""
+        try:
+            # Spatial filter
+            self.filters['spatial'] = rs.spatial_filter()
+            self.filters['spatial'].set_option(rs.option.filter_smooth_alpha, 0.5)
+            self.filters['spatial'].set_option(rs.option.filter_smooth_delta, 20)
+            self.filters['spatial'].set_option(rs.option.filter_magnitude, 2)
+
+            # Temporal filter
+            self.filters['temporal'] = rs.temporal_filter()
+            self.filters['temporal'].set_option(rs.option.filter_smooth_alpha, 0.4)
+            self.filters['temporal'].set_option(rs.option.filter_smooth_delta, 20)
+
+            # Hole filling filter
+            self.filters['hole_filling'] = rs.hole_filling_filter()
+            self.filters['hole_filling'].set_option(rs.option.holes_fill, 1)
+
+            self.filter_enabled = {'spatial': True, 'temporal': True, 'hole_filling': True}
+            self.logger.info("Depth filters configured")
+        except Exception as e:
+            self.logger.warning(f"Could not setup filters: {e}")
+            self.filter_enabled = {}
+
+    def _frame_capture_loop(self):
+        """Enhanced frame capture loop with better distribution."""
+        while self.running:
+            try:
+                frames = self.pipeline.wait_for_frames()
+                aligned_frames = self.align.process(frames)
+
+                depth_frame = aligned_frames.get_depth_frame()
+                color_frame = aligned_frames.get_color_frame()
+
+                # Enhanced: Apply filters to depth frame
+                if depth_frame:
+                    filtered_depth = depth_frame
+                    for filter_name in ['spatial', 'temporal', 'hole_filling']:
+                        if self.filter_enabled.get(filter_name, False):
+                            try:
+                                filtered_depth = self.filters[filter_name].process(filtered_depth)
+                            except:
+                                pass
+                    depth_frame = filtered_depth
+
+                # Get IMU data
+                accel_frame = frames.first_or_default(rs.stream.accel)
+                gyro_frame = frames.first_or_default(rs.stream.gyro)
+
+                if accel_frame:
+                    accel_data = accel_frame.as_motion_frame().get_motion_data()
+                    self.latest_accel = np.array([accel_data.x, accel_data.y, accel_data.z])
+
+                if gyro_frame:
+                    gyro_data = gyro_frame.as_motion_frame().get_motion_data()
+                    self.latest_gyro = np.array([gyro_data.x, gyro_data.y, gyro_data.z])
+
+                if depth_frame and color_frame:
+                    # Convert to numpy arrays
+                    depth_image = np.asanyarray(depth_frame.get_data())
+                    color_image = np.asanyarray(color_frame.get_data())
+
+                    with self.frame_lock:
+                        self.frame_counter += 1
+                        frame_data = {
+                            'color': color_image,
+                            'depth': depth_image,
+                            'timestamp': time.time(),
+                            'color_timestamp': color_frame.get_timestamp(),
+                            'depth_timestamp': depth_frame.get_timestamp(),
+                            'frame_valid': True,
+                            'frame_id': self.frame_counter  # NEW: Unique frame ID
+                        }
+
+                        self.latest_frames = frame_data
+
+                        # NEW: Update subscriber-specific buffers
+                        for subscriber_id in self.subscribers:
+                            self.subscriber_frames[subscriber_id] = frame_data.copy()
+
+                        self.last_frame_time = time.time()
+                        self.retry_count = 0
+
+            except RuntimeError as e:
+                self.logger.warning(f"Frame capture error: {e}")
+                self.retry_count += 1
+
+                if self.retry_count >= self.max_retries:
+                    self.logger.error("Max retries reached, attempting restart...")
+                    if self._attempt_restart():
+                        self.retry_count = 0
+                    else:
+                        self.logger.error("Camera restart failed, stopping capture")
+                        break
+
+                time.sleep(0.1)
+            except Exception as e:
+                self.logger.error(f"Unexpected frame capture error: {e}")
+                time.sleep(0.1)
+
+    def get_frames_for_subscriber(self, subscriber_id):
+        """Get frames for specific subscriber (NEW METHOD)."""
+        with self.frame_lock:
+            if subscriber_id in self.subscriber_frames:
+                frames = self.subscriber_frames[subscriber_id]
+                if frames and 'color' in frames:
+                    # Check if this is a new frame for this subscriber
+                    last_frame_id = self.subscriber_last_frame.get(subscriber_id, -1)
+                    current_frame_id = frames.get('frame_id', 0)
+
+                    if current_frame_id > last_frame_id:
+                        self.subscriber_last_frame[subscriber_id] = current_frame_id
+                        return frames['color'].copy(), frames['depth'].copy()
+            return None, None
+
+    def _attempt_restart(self):
+        """Attempt to restart the camera pipeline."""
+        try:
+            self.logger.info("Restarting shared camera...")
+            if self.pipeline:
+                self.pipeline.stop()
+            time.sleep(1)
+
+            # Restart with same config
+            self.profile = self.pipeline.start(self.config_rs)
+            self.logger.info("Shared camera restarted successfully")
+            return True
+        except Exception as e:
+            self.logger.error(f"Camera restart failed: {e}")
+            return False
+
+    def capture_frames(self):
+        """Get latest frames (thread-safe)."""
+        with self.frame_lock:
+            if self.latest_frames and 'color' in self.latest_frames:
+                return self.latest_frames.copy()
+            return None
+
+    def get_frames(self):
+        """Get latest frames as tuple (thread-safe)."""
+        with self.frame_lock:
+            if self.latest_frames and 'color' in self.latest_frames:
+                return self.latest_frames['color'].copy(), self.latest_frames['depth'].copy()
+            return None, None
+
+    def get_imu_data(self):
+        """Get latest IMU data."""
+        return self.latest_accel, self.latest_gyro
+
+    def register_subscriber(self, name):
+        """Enhanced subscriber registration."""
+        subscriber_id = f"{name}_{id(object())}"
+        self.subscribers[subscriber_id] = {
+            'name': name,
+            'created_at': time.time()
+        }
+        self.subscriber_frames[subscriber_id] = {}  # Initialize frame buffer
+        self.subscriber_last_frame[subscriber_id] = -1  # Initialize frame tracker
+        self.logger.info(f"Registered subscriber: {subscriber_id} ({name})")
+        return subscriber_id
+
+    def unregister_subscriber(self, subscriber_id):
+        """Enhanced subscriber cleanup."""
+        if subscriber_id in self.subscribers:
+            del self.subscribers[subscriber_id]
+            if subscriber_id in self.subscriber_frames:
+                del self.subscriber_frames[subscriber_id]
+            if subscriber_id in self.subscriber_last_frame:
+                del self.subscriber_last_frame[subscriber_id]
+            self.logger.info(f"Unregistered subscriber: {subscriber_id}")
+
+        # If no more subscribers, cleanup
+        if not self.subscribers:
+            self.logger.info("No more subscribers, cleaning up shared camera")
+            self.cleanup()
+
+    def get_device_status(self):
+        """Get device status."""
+        return {
+            'is_streaming': self.is_streaming,
+            'subscribers': len(self.subscribers),
+            'last_frame_age': time.time() - self.last_frame_time,
+            'retry_count': self.retry_count,
+            'filters_enabled': list(self.filter_enabled.keys())
+        }
+
+    def cleanup(self):
+        """Cleanup camera resources."""
+        self.running = False
+        self.is_streaming = False
+
+        if self.frame_thread and self.frame_thread.is_alive():
+            self.frame_thread.join(timeout=2)
+
+        if self.pipeline:
+            try:
+                self.pipeline.stop()
+                self.logger.info("Shared camera pipeline stopped")
+            except:
+                pass
+
+        self.pipeline = None
+        self.subscribers.clear()
+        self.logger.info("Shared camera cleanup completed")
 
 
 class RealSenseManager:
@@ -543,3 +930,111 @@ class RealSenseManager:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
         self.cleanup()
+
+
+# SLAM Compatibility Class - Using Shared Camera Manager
+class D435iCamera:
+    """SLAM-compatible interface using shared CameraShareManager internally."""
+
+    def __init__(self, config):
+        self.config = config
+        self.camera_manager = CameraShareManager()
+
+        # Only initialize if not already initialized
+        if not self.camera_manager.is_streaming:
+            if not self.camera_manager.initialize_camera(config):
+                raise RuntimeError("Failed to initialize camera")
+
+        self.subscriber_id = self.camera_manager.register_subscriber("SLAM")
+
+        # FIX: Always set intrinsics attribute
+        self.intrinsics = self.camera_manager.intrinsics
+        print(f"D435iCamera initialized for SLAM (subscriber: {self.subscriber_id})")
+
+    def get_frames(self):
+        """Get RGB and depth frames (SLAM interface)."""
+        # NEW: Use subscriber-specific frame getter
+        return self.camera_manager.get_frames_for_subscriber(self.subscriber_id)
+
+    def get_imu_data(self):
+        """Get latest IMU readings (SLAM interface)."""
+        return self.camera_manager.get_imu_data()
+
+    def get_intrinsics(self):
+        """Return intrinsic matrix (SLAM interface)."""
+        if self.intrinsics is None:
+            # Fallback intrinsics
+            width = self.config["camera"]["width"]
+            height = self.config["camera"]["height"]
+            fx, fy = 500.0, 500.0  # Default focal lengths
+            cx, cy = width / 2, height / 2
+
+            print(f"Using fallback intrinsics: {fx}, {fy}, {cx}, {cy}")
+        else:
+            fx, fy = self.intrinsics.fx, self.intrinsics.fy
+            cx, cy = self.intrinsics.ppx, self.intrinsics.ppy
+
+        intrinsic_matrix = np.array([
+            [fx, 0, cx],
+            [0, fy, cy],
+            [0, 0, 1]
+        ])
+        return intrinsic_matrix
+
+    def get_device_status(self):
+        """Get device status (enhanced functionality)."""
+        return self.camera_manager.get_device_status()
+
+    def stop(self):
+        """Stop camera (SLAM interface)."""
+        if hasattr(self, 'subscriber_id'):
+            self.camera_manager.unregister_subscriber(self.subscriber_id)
+            print(f"D435iCamera stopped (subscriber {self.subscriber_id})")
+
+
+# Detection system compatibility
+class RealSenseDetectionCamera:
+    """Detection system compatible interface using shared camera manager."""
+
+    def __init__(self, config):
+        """Initialize camera for detection system."""
+        self.config = config
+
+        # Use the shared camera manager
+        self.camera_manager = CameraShareManager()
+
+        # Only initialize if not already initialized
+        if not self.camera_manager.is_streaming:
+            if not self.camera_manager.initialize_camera(config):
+                raise RuntimeError("Failed to initialize camera")
+
+        # Register as subscriber with unique name
+        self.subscriber_id = self.camera_manager.register_subscriber("Detection")
+
+    def capture_frames(self):
+        """Get frames for detection system."""
+        # NEW: Use subscriber-specific frame getter
+        rgb, depth = self.camera_manager.get_frames_for_subscriber(self.subscriber_id)
+
+        if rgb is not None and depth is not None:
+            return {
+                'color': rgb,
+                'depth': depth,
+                'timestamp': time.time(),
+                'frame_valid': True
+            }
+        return None
+
+    def get_frames(self):
+        """Alternative method for getting frames."""
+        return self.camera_manager.get_frames_for_subscriber(self.subscriber_id)
+
+    def get_device_status(self):
+        """Get device status."""
+        return self.camera_manager.get_device_status()
+
+    def cleanup(self):
+        """Cleanup detection camera."""
+        if hasattr(self, 'subscriber_id'):
+            self.camera_manager.unregister_subscriber(self.subscriber_id)
+            print(f"Detection camera stopped (subscriber {self.subscriber_id})")
