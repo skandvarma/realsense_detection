@@ -3,7 +3,7 @@ import os
 import time
 import cv2
 import numpy as np
-from .camera import D435iCamera
+from camera import D435iCamera
 from enhanced_slam import EnhancedMinimalSLAM
 from visualizer import MinimalVisualizer, PerformanceMonitor
 

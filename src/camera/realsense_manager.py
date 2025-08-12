@@ -56,9 +56,9 @@ class IntrinsicParameters:
 
 # Singleton Camera Share Manager
 class CameraShareManager:
-    """Singleton manager for sharing camera device between multiple systems."""
     _instance = None
     _lock = threading.Lock()
+    _init_lock = threading.Lock()  # NEW: Dedicated lock for initialization
 
     def __new__(cls):
         if cls._instance is None:
@@ -66,6 +66,7 @@ class CameraShareManager:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
         return cls._instance
+
 
     def __init__(self):
         if not hasattr(self, '_initialized'):
@@ -78,6 +79,7 @@ class CameraShareManager:
             self.depth_scale = None
             self.context = rs.context()
             self.device = None
+            self._init_lock = threading.Lock()
 
             # Enhanced features
             self.filters = {}
@@ -111,9 +113,16 @@ class CameraShareManager:
 
     def initialize_camera(self, config):
         """Initialize camera with config from first subscriber."""
-        if self.pipeline is not None and self.is_streaming:
-            self.logger.info("Camera already initialized, reusing existing instance")
-            return True  # Already initialized
+        # FIX: More robust check for already initialized state
+        if self.pipeline is not None and self.is_streaming and self.running:
+            self.logger.info("Camera already initialized and streaming, reusing existing instance")
+            return True
+
+        # FIX: Only cleanup if we're in a partial/failed state
+        if self.pipeline is not None and not self.is_streaming:
+            self.logger.info("Cleaning up partial initialization...")
+            self.cleanup()
+            time.sleep(0.5)
 
         try:
             self.logger.info("Initializing shared camera...")
@@ -132,13 +141,6 @@ class CameraShareManager:
                 device_serial = devices[0]['serial_number']
                 self.config_rs.enable_device(device_serial)
                 self.logger.info(f"Using device: {device_serial}")
-            try:
-                color_stream = self.profile.get_stream(rs.stream.color)
-                self.intrinsics = color_stream.as_video_stream_profile().get_intrinsics()
-                self.logger.info(f"Color intrinsics: fx={self.intrinsics.fx:.2f}, fy={self.intrinsics.fy:.2f}")
-            except Exception as e:
-                self.logger.error(f"Error getting intrinsics: {e}")
-                self.intrinsics = None
 
             # Configure streams from SLAM config format
             if 'camera' in config:
@@ -176,15 +178,25 @@ class CameraShareManager:
             # Enable alignment
             self.align = rs.align(rs.stream.color)
 
-            # Get intrinsics
-            color_stream = self.profile.get_stream(rs.stream.color)
-            self.intrinsics = color_stream.as_video_stream_profile().get_intrinsics()
+            # Get intrinsics AFTER pipeline is started
+            try:
+                color_stream = self.profile.get_stream(rs.stream.color)
+                self.intrinsics = color_stream.as_video_stream_profile().get_intrinsics()
+                self.logger.info(f"Color intrinsics: fx={self.intrinsics.fx:.2f}, fy={self.intrinsics.fy:.2f}")
+            except Exception as e:
+                self.logger.error(f"Error getting intrinsics: {e}")
+                self.intrinsics = None
 
             # Enhanced: Get depth intrinsics and scale
-            depth_stream = self.profile.get_stream(rs.stream.depth)
-            self.depth_intrinsics = depth_stream.as_video_stream_profile().get_intrinsics()
-            depth_sensor = self.profile.get_device().first_depth_sensor()
-            self.depth_scale = depth_sensor.get_depth_scale()
+            try:
+                depth_stream = self.profile.get_stream(rs.stream.depth)
+                self.depth_intrinsics = depth_stream.as_video_stream_profile().get_intrinsics()
+                depth_sensor = self.profile.get_device().first_depth_sensor()
+                self.depth_scale = depth_sensor.get_depth_scale()
+            except Exception as e:
+                self.logger.error(f"Error getting depth parameters: {e}")
+                self.depth_intrinsics = None
+                self.depth_scale = None
 
             # Start frame capture thread
             self.running = True
@@ -199,6 +211,7 @@ class CameraShareManager:
             self.logger.error(f"Camera initialization failed: {e}")
             self.cleanup()
             return False
+
 
     def _detect_devices(self):
         """Detect available devices."""
@@ -932,6 +945,7 @@ class RealSenseManager:
         self.cleanup()
 
 
+
 # SLAM Compatibility Class - Using Shared Camera Manager
 class D435iCamera:
     """SLAM-compatible interface using shared CameraShareManager internally."""
@@ -940,10 +954,12 @@ class D435iCamera:
         self.config = config
         self.camera_manager = CameraShareManager()
 
-        # Only initialize if not already initialized
+        # FIX: Check if already initialized BEFORE attempting to initialize
         if not self.camera_manager.is_streaming:
             if not self.camera_manager.initialize_camera(config):
                 raise RuntimeError("Failed to initialize camera")
+        else:
+            self.camera_manager.logger.info("Camera already initialized, skipping initialization")
 
         self.subscriber_id = self.camera_manager.register_subscriber("SLAM")
 
@@ -1003,10 +1019,12 @@ class RealSenseDetectionCamera:
         # Use the shared camera manager
         self.camera_manager = CameraShareManager()
 
-        # Only initialize if not already initialized
+        # FIX: Check if already initialized BEFORE attempting to initialize
         if not self.camera_manager.is_streaming:
             if not self.camera_manager.initialize_camera(config):
                 raise RuntimeError("Failed to initialize camera")
+        else:
+            self.camera_manager.logger.info("Camera already initialized, skipping initialization")
 
         # Register as subscriber with unique name
         self.subscriber_id = self.camera_manager.register_subscriber("Detection")

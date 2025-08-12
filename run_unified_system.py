@@ -19,10 +19,10 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'realsense_slam/src'))
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Import SLAM components
-from realsense_slam.src.camera import D435iCamera
-from realsense_slam.src.enhanced_slam import EnhancedMinimalSLAM
-from realsense_slam.src.visualizer import MinimalVisualizer
+#  Import SLAM components
+# from realsense_slam.src.camera import D435iCamera
+# from realsense_slam.src.enhanced_slam import EnhancedMinimalSLAM
+# from realsense_slam.src.visualizer import MinimalVisualizer
 from realsense_slam.src.main_enhanced import EnhancedSLAMSystem
 
 # Import Detection components
@@ -81,13 +81,19 @@ class UnifiedSystem:
             print("\nInitializing shared camera manager...")
             self.shared_camera_manager = CameraShareManager()
 
-            # Initialize camera with config
+            # FIX: Initialize camera with config and ensure it's ready
             if not self.shared_camera_manager.initialize_camera(self.config):
                 raise RuntimeError("Failed to initialize shared camera")
 
+            # FIX: Wait a moment to ensure camera is fully ready
+            time.sleep(1.0)
+
             print("Shared camera manager initialized successfully")
+
         except Exception as e:
             print(f"Camera initialization error: {e}")
+            import traceback
+            traceback.print_exc()
             sys.exit(1)
 
     def load_config(self):
@@ -121,7 +127,7 @@ class UnifiedSystem:
 
         # Add detection config
         config['detection'] = {
-            'active_model': 'detr',
+            'active_model': 'yolo',
             'yolo': {
                 'model_path': 'data/models/',
                 'weights': 'yolo11m.pt',
@@ -142,9 +148,8 @@ class UnifiedSystem:
         """Run detection system in thread."""
         try:
             print("\n[Detection] Initializing...")
-            time.sleep(1)  # Give SLAM time to initialize camera first
 
-            # Initialize detection components with shared camera
+            # FIX: Use the already initialized shared camera instead of creating new one
             camera = RealSenseDetectionCamera(self.config)
 
             # Initialize detector
@@ -155,8 +160,9 @@ class UnifiedSystem:
                 print("[Detection] Failed to create detector")
                 return
 
-            # Initialize depth processor for 3D
-            depth_processor = DepthProcessor(camera.camera_manager, self.config)
+            # Initialize depth processor for 3D using the shared camera manager
+            depth_processor = DepthProcessor(self.shared_camera_manager, self.config)
+            depth_processor.update_camera_parameters()
             postprocessor = Postprocessor(self.config, depth_processor)
 
             self.detection_system = {
@@ -196,6 +202,8 @@ class UnifiedSystem:
 
         except Exception as e:
             print(f"[Detection] Error: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             if self.detection_system:
                 if 'detector' in self.detection_system:
@@ -205,22 +213,107 @@ class UnifiedSystem:
             print("[Detection] System stopped")
 
     def run_slam_system(self):
-        """Run SLAM system in thread."""
+        """Run SLAM system in thread using main_enhanced.py."""
         try:
             print("\n[SLAM] Initializing...")
 
-            # Initialize enhanced SLAM system
+            # Import the EnhancedSLAMSystem from main_enhanced
+            from realsense_slam.src.main_enhanced import EnhancedSLAMSystem
+
+            # Create the SLAM system
             self.slam_system = EnhancedSLAMSystem(self.config)
-            self.slam_system.run_enhanced_slam(headless=False)  # Run in headless mode
+
+            # FIX: Instead of calling run_enhanced_slam (which creates its own camera),
+            # we'll manually set up the camera and run the SLAM loop
+
+            # Create shared camera for SLAM
+            from src.camera.realsense_manager import D435iCamera
+            slam_camera = D435iCamera(self.config)
+
+            # Set the camera in the SLAM system (bypass internal camera creation)
+            self.slam_system.camera = slam_camera
+
+            # Get intrinsics and initialize SLAM manually
+            intrinsics = slam_camera.get_intrinsics()
+
+            # Import and create the enhanced SLAM processor
+            from realsense_slam.src.enhanced_slam import EnhancedMinimalSLAM
+            self.slam_system.slam = EnhancedMinimalSLAM(intrinsics, self.config)
+
+            # Set up visualizer if needed (optional, since we're doing headless)
+            try:
+                from realsense_slam.src.visualizer import MinimalVisualizer
+                self.slam_system.visualizer = MinimalVisualizer(self.config)
+            except:
+                self.slam_system.visualizer = None
+
+            print("[SLAM] System started")
+
+            # Now run the SLAM processing loop (similar to what run_enhanced_slam does)
+            frame_count = 0
+            start_time = time.time()
+            last_stats_time = time.time()
+
+            while self.running:
+                try:
+                    frame_start = time.time()
+
+                    # Get camera frames and IMU
+                    rgb, depth = slam_camera.get_frames()
+                    accel, gyro = slam_camera.get_imu_data()
+
+                    if rgb is None or depth is None:
+                        continue
+
+                    # Process enhanced SLAM with motion detection
+                    depth_meters = depth.astype(np.float32) / 1000.0
+                    self.slam_system.slam.process_frame(rgb, depth_meters, accel, gyro)
+
+                    # Update shared data for visualization
+                    with self.shared_data['lock']:
+                        self.shared_data['slam_frame'] = rgb.copy()
+                        self.shared_data['slam_trajectory'] = self.slam_system.slam.get_trajectory()
+
+                    # Get motion statistics
+                    motion_stats = self.slam_system.slam.get_motion_stats()
+
+                    frame_count += 1
+
+                    # Detailed status every 3 seconds (like in original main_enhanced)
+                    current_time = time.time()
+                    if current_time - last_stats_time >= 3.0:
+                        trajectory = self.slam_system.slam.get_trajectory()
+                        map_size = len(self.slam_system.slam.get_map().points) if self.slam_system.slam.get_map() else 0
+
+                        print(f"[SLAM] Frame {frame_count}: {len(trajectory)} poses, {map_size} points")
+
+                        if motion_stats:
+                            motion_rate = motion_stats.get('motion_rate', 0)
+                            drift_rate = motion_stats.get('drift_detection_rate', 0)
+                            scale_factor = motion_stats.get('scale_factor', 1.0)
+                            print(
+                                f"[SLAM] Motion: {motion_rate:.1%}, Drift: {drift_rate:.1%}, Scale: {scale_factor:.3f}")
+
+                        last_stats_time = current_time
+
+                    time.sleep(0.01)
+
+                except Exception as e:
+                    print(f"[SLAM] Frame processing error: {e}")
+                    time.sleep(0.1)
 
         except Exception as e:
             print(f"[SLAM] Error: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
+            # Cleanup using EnhancedSLAMSystem cleanup method
             if self.slam_system:
-                self.slam_system.cleanup()
+                try:
+                    self.slam_system.cleanup()
+                except:
+                    pass
             print("[SLAM] System stopped")
-
-
 
     def display_slam_frame(self, frame, motion_stats, frame_count):
         """Display SLAM-specific frame."""
@@ -304,13 +397,21 @@ class UnifiedSystem:
         """Start both systems."""
         self.running = True
 
-        # Start SLAM thread
+        # FIX: Start SLAM first to establish camera connection
+        print("\nStarting SLAM system first...")
         self.slam_thread = threading.Thread(target=self.run_slam_system, daemon=True)
         self.slam_thread.start()
 
-        # Start Detection thread
+        # FIX: Add delay to ensure SLAM initializes camera properly
+        time.sleep(2.0)
+
+        # Then start Detection system (will reuse camera)
+        print("Starting Detection system...")
         self.detection_thread = threading.Thread(target=self.run_detection_system, daemon=True)
         self.detection_thread.start()
+
+        # FIX: Add delay before starting combined view
+        time.sleep(1.0)
 
         # Run combined view in main thread
         print("\n" + "=" * 60)
