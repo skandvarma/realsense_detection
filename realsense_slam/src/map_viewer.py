@@ -222,36 +222,26 @@ class MapViewer:
             print(f"  Angle between trajectories: {angle_degrees:.1f}°")
 
             if dot_product > 0.8:
-                print(f"  Status: ✓ GOOD alignment")
+                print(f"  Status:  GOOD alignment")
             elif dot_product > 0.3:
-                print(f"  Status: ⚠ FAIR alignment")
+                print(f"  Status:  FAIR alignment")
             elif dot_product > -0.3:
-                print(f"  Status: ⚠ PERPENDICULAR trajectories")
+                print(f"  Status:  PERPENDICULAR trajectories")
             else:
-                print(f"  Status: ✗ OPPOSITE directions - needs coordinate fix")
+                print(f"  Status:  OPPOSITE directions - needs coordinate fix")
 
 
 def main():
     if len(sys.argv) != 2:
-        print("Usage: python map_viewer.py <session_name>")
-        print("Example: python map_viewer.py aligned_trajectory_test")
-        print("\nAvailable sessions:")
-        session_dir = "../data/sessions"
-        if os.path.exists(session_dir):
-            sessions = set()
-            for file in os.listdir(session_dir):
-                if file.endswith("_map.ply"):
-                    session_name = file.replace("_map.ply", "")
-                    sessions.add(session_name)
-            for session in sorted(sessions):
-                print(f"  - {session}")
+        print("Usage: python map_viewer.py <session_path_without_extension>")
+        print("Example: python map_viewer.py /path/to/my_session")
         return
 
-    session_name = sys.argv[1]
-    session_path = f"../data/sessions/{session_name}"
+    session_path = sys.argv[1]
 
     viewer = MapViewer()
     viewer.load_and_view_session(session_path)
+
 
 
 if __name__ == "__main__":
