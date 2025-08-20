@@ -23,7 +23,6 @@ os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['MKL_NUM_THREADS'] = '1'
 
-from realsense_slam.src.main_enhanced import EnhancedSLAMSystem
 from src.camera.realsense_manager import RealSenseDetectionCamera
 from src.detection import DetectorFactory, Postprocessor
 from src.camera.depth_processor import DepthProcessor
@@ -48,6 +47,7 @@ class UnifiedSystem:
         self.slam_system = None
         self.detection_system = None
         self.shared_camera_manager = None
+        self.detection_prompt = None  # Store text prompt for detection
 
         # MINIMAL ADDITION: Session management
         self.session_name = "unified"  # MINIMAL CHANGE: Fixed name without timestamp
@@ -134,7 +134,20 @@ class UnifiedSystem:
                 }
             }
 
-        # Detection config
+        # Try to load detection config from YAML
+        try:
+            from src.utils.config import ConfigManager
+            yaml_config = ConfigManager.load_config('config.yaml')
+            if 'detection' in yaml_config:
+                print("Using detection config from config.yaml")
+                config['detection'] = yaml_config['detection']
+                return config
+        except ImportError:
+            print("PyYAML not installed, using default detection config")
+        except Exception as e:
+            print(f"Error loading YAML config: {e}, using default detection config")
+
+        # Fallback to default detection config
         config['detection'] = {
             'active_model': 'yolo',
             'yolo': {
@@ -145,21 +158,14 @@ class UnifiedSystem:
             },
             'detr': {
                 'variant': 'grounding-dino',
-                # Options: detr-resnet-50, detr-resnet-101, conditional-detr-resnet-50, grounding-dino
                 'model_path': 'data/models/',
                 'model_name': 'IDEA-Research/grounding-dino-base',
-
-                # Detection Parameters
                 'confidence_threshold': 0.2,
                 'max_detections': 10,
-
-                # Input Configuration
                 'input_size': [640, 640],
                 'normalize': True,
                 'mean': [0.485, 0.456, 0.406],
                 'std': [0.229, 0.224, 0.225],
-
-                # Class Filtering
                 'target_classes': []
             }
         }
@@ -304,6 +310,14 @@ class UnifiedSystem:
                 print("[Detection] Failed to create detector")
                 return
 
+            # Set text prompt if using Grounding DINO
+            if hasattr(detector, 'is_grounding_dino') and detector.is_grounding_dino:
+                if self.detection_prompt:
+                    detector.update_text_prompt(self.detection_prompt)
+                    print(f"[Detection] Using Grounding DINO with prompt: '{self.detection_prompt}'")
+                else:
+                    print("[Detection] Warning: No prompt provided for Grounding DINO")
+
             # Initialize processors
             depth_processor = DepthProcessor(self.shared_camera_manager, self.config)
             depth_processor.update_camera_parameters()
@@ -325,7 +339,13 @@ class UnifiedSystem:
 
                     if rgb is not None:
                         # Run detection
-                        result = detector.detect(rgb, frame_id=frame_count)
+                        kwargs = {'frame_id': frame_count}
+
+                        # For Grounding DINO, always pass the text prompt
+                        if hasattr(detector, 'is_grounding_dino') and detector.is_grounding_dino:
+                            kwargs['text_prompt'] = self.detection_prompt or detector.get_current_prompt()
+
+                        result = detector.detect(rgb, **kwargs)
 
                         if result.success:
                             # Postprocess
@@ -438,6 +458,14 @@ class UnifiedSystem:
 
     def start(self):
         """Start both systems."""
+        # Get detection prompt if needed
+        if self.config['detection']['active_model'] == 'detr' and \
+                self.config['detection']['detr']['variant'] == 'grounding-dino':
+            self.detection_prompt = input(
+                "\nEnter detection prompt for Grounding DINO (e.g., 'person . car . dog'): "
+            ).strip()
+            print(f"Using detection prompt: '{self.detection_prompt}'")
+
         self.running = True
 
         # Start SLAM first
