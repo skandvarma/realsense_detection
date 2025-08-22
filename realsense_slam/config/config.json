@@ -1,5 +1,84 @@
 {
-    "camera": {"width": 640, "height": 480, "fps": 30},
-    "slam": {"voxel_size": 0.02, "max_depth": 3.0},
-    "viz": {"point_size": 2, "background": [0, 0, 0]}
+    "camera": {
+        "width": 640,
+        "height": 480,
+        "fps": 30
+    },
+    "slam": {
+        "voxel_size": 0.0058,
+        "odometry_method": "hybrid",
+        "max_points": 120000000,
+        "icp_threshold": 0.02,
+        "max_depth": 3.0,
+        "process_every_n": 1,
+        "accumulate_every_n": 3,
+        "use_open3d_slam": true,
+        "block_count": 40000,
+        "surface_weight_thr": 3.0,
+        "trunc_voxel_multiplier": 8.0,
+        "depth_scale": 1000.0,
+        "depth_min": 0.1,
+        "integrate_color": true,
+        "device": "CUDA:0"
+    },
+    "viz": {
+        "point_size": 2,
+        "background": [0, 0, 0],
+        "viz_points_limit": 15000,
+        "update_every_n": 2,
+        "show_trajectory": true,
+        "trajectory_every_n": 5
+    },
+    "motion_detection": {
+        "imu_drift_threshold": 0.17078,
+        "visual_feature_threshold": 5.0,
+        "visual_flow_threshold": 2.0,
+        "confidence_thresholds": {
+            "high": 0.9,
+            "medium": 0.7,
+            "low": 0.4
+        }
+    },
+    "performance_presets": {
+        "high_performance": {
+            "slam": {
+                "voxel_size": 0.08,
+                "process_every_n": 2,
+                "accumulate_every_n": 5,
+                "max_points": 50000,
+                "use_open3d_slam": false
+            },
+            "viz": {
+                "update_every_n": 3,
+                "viz_points_limit": 10000
+            }
+        },
+        "balanced": {
+            "slam": {
+                "voxel_size": 0.01,
+                "process_every_n": 1,
+                "accumulate_every_n": 3,
+                "max_points": 100000,
+                "use_open3d_slam": true
+            },
+            "viz": {
+                "update_every_n": 2,
+                "viz_points_limit": 15000
+            }
+        },
+        "high_quality": {
+            "slam": {
+                "voxel_size": 0.005,
+                "process_every_n": 1,
+                "accumulate_every_n": 1,
+                "max_points": 200000,
+                "use_open3d_slam": true,
+                "surface_weight_thr": 1.0
+            },
+            "viz": {
+                "update_every_n": 1,
+                "viz_points_limit": 25000
+            }
+        }
+    }
 }

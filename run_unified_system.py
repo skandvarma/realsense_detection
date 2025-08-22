@@ -173,119 +173,151 @@ class UnifiedSystem:
         return config
 
     def run_slam_system(self):
-        """Run SLAM system in thread with periodic saving."""
+        """Run SLAM system using enhanced_slam_v2 with Open3D GUI."""
         try:
-            print("\n[SLAM] Initializing...")
+            print("\n[SLAM] Initializing Open3D GUI SLAM...")
 
-            from realsense_slam.src.main_enhanced import EnhancedSLAMSystem
-            from src.camera.realsense_manager import D435iCamera
-            from realsense_slam.src.enhanced_slam import EnhancedMinimalSLAM
+            # Import Open3D GUI components
+            import open3d as o3d
+            import open3d.visualization.gui as gui
 
-            # Create SLAM system
-            self.slam_system = EnhancedSLAMSystem(self.config)
+            # Import the new SLAM system
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__),
+                                            'realsense_slam/src/Open3D/examples/python/t_reconstruction_system'))
+            from enhanced_slam_v2 import ReconstructionWindow
 
-            # Setup camera
-            slam_camera = D435iCamera(self.config)
-            self.slam_system.camera = slam_camera
+            # Create a minimal config object for Open3D SLAM
+            class SLAMConfig:
+                def __init__(self, config_dict, session_name):
+                    # Map our config to Open3D expected format
+                    self.depth_scale = 1000.0
+                    self.voxel_size = config_dict.get('slam', {}).get('voxel_size', 0.05)
+                    self.trunc_voxel_multiplier = 8.0
+                    self.block_count = 60000
+                    self.est_point_count = 2000000
+                    self.depth_max = config_dict.get('slam', {}).get('max_depth', 3.0)
+                    self.depth_min = 0.1
+                    self.odometry_distance_thr = 0.15
+                    self.device = "CPU:0"  # or "CUDA:0" if available
+                    self.path_npz = f"realsense_slam/data/sessions/{session_name}_slam.npz"
+                    # Add missing engine attribute
+                    self.engine = "tensor"  # or "legacy" - determines mesh extraction method
+                    # Add missing surface weight threshold
+                    self.surface_weight_thr = 3.0  # Minimum weight for surface extraction
 
-            # Initialize SLAM
-            intrinsics = slam_camera.get_intrinsics()
-            self.slam_system.slam = EnhancedMinimalSLAM(intrinsics, self.config)
+            slam_config = SLAMConfig(self.config, self.session_name)
 
-            # No visualizer for headless SLAM
-            self.slam_system.visualizer = None
+            if self.slam_headless:
+                print("[SLAM] Running in headless mode - GUI disabled")
+                # For headless mode, we'll run a simplified version
+                self.run_headless_slam()
+                return
+            else:
+                print("[SLAM] Running with Open3D GUI")
+                # Initialize Open3D application
+                app = gui.Application.instance
+                app.initialize()
 
-            print("[SLAM] System started (headless mode)")
-            print(f"[SLAM] Saving to: realsense_slam/src/data/sessions/{self.session_name}_*")
+                # Create font for the GUI
+                mono = app.add_font(gui.FontDescription(gui.FontDescription.MONOSPACE))
 
-            frame_count = 0
-            start_time = time.time()
-            last_stats_time = time.time()
+                # Create SLAM window
+                slam_window = ReconstructionWindow(slam_config, mono)
 
-            while self.running:
-                try:
-                    # Get frames and IMU
-                    rgb, depth = slam_camera.get_frames()
-                    accel, gyro = slam_camera.get_imu_data()
+                print("[SLAM] Open3D GUI SLAM started")
 
-                    if rgb is None or depth is None:
-                        continue
-
-                    # Process SLAM
-                    depth_meters = depth.astype(np.float32) / 1000.0
-                    self.slam_system.slam.process_frame(rgb, depth_meters, accel, gyro)
-
-                    # Update shared data
-                    with self.shared_data['lock']:
-                        self.shared_data['slam_frame'] = rgb.copy()
-                        self.shared_data['slam_trajectory'] = self.slam_system.slam.get_trajectory()
-
-                    frame_count += 1
-
-                    # Status update every 3 seconds
-                    current_time = time.time()
-                    if current_time - last_stats_time >= 3.0:
-                        trajectory = self.slam_system.slam.get_trajectory()
-                        map_size = len(self.slam_system.slam.get_map().points) if self.slam_system.slam.get_map() else 0
-
-                        motion_stats = self.slam_system.slam.get_motion_stats()
-
-                        print(f"[SLAM] Frame {frame_count}: {len(trajectory)} poses, {map_size} points")
-
-                        if motion_stats:
-                            motion_rate = motion_stats.get('motion_rate', 0)
-                            scale_factor = motion_stats.get('scale_factor', 1.0)
-                            print(f"[SLAM] Motion: {motion_rate:.1%}, Scale: {scale_factor:.3f}")
-
-                        last_stats_time = current_time
-
-                    # MINIMAL ADDITION: Periodic saving
-                    if current_time - self.last_save_time >= self.save_interval:
-                        self.save_slam_data()
-                        self.last_save_time = current_time
-
-                    time.sleep(0.01)
-
-                except Exception as e:
-                    if frame_count % 100 == 0:
-                        print(f"[SLAM] Frame processing error: {e}")
-                    time.sleep(0.1)
+                # Run the application (this blocks)
+                app.run()
 
         except Exception as e:
             print(f"[SLAM] Error: {e}")
             import traceback
             traceback.print_exc()
         finally:
-            # MINIMAL ADDITION: Final save before shutdown
-            print("[SLAM] Saving final session data...")
-            self.save_slam_data()
+            print("[SLAM] Open3D SLAM system stopped")
 
-            if self.slam_system:
-                try:
-                    self.slam_system.cleanup()
-                except:
-                    pass
-            print("[SLAM] System stopped")
-
-    def save_slam_data(self):
-        """Save SLAM map and trajectory data."""
-        if not self.slam_system or not self.slam_system.slam:
-            return
-
+    def run_headless_slam(self):
+        """Fallback headless SLAM for when GUI is disabled."""
         try:
-            session_path = str(self.data_dir / self.session_name)
-            self.slam_system.slam.save_session(session_path)
+            from src.camera.realsense_manager import D435iCamera
 
-            # Get statistics for logging
-            map_points = len(self.slam_system.slam.get_map().points) if self.slam_system.slam.get_map() else 0
-            trajectory_poses = len(self.slam_system.slam.get_trajectory())
+            # Use the original headless SLAM as fallback
+            slam_camera = D435iCamera(self.config)
 
-            print(f"[SLAM] Data saved: {self.session_name}")
-            print(f"       Map: {map_points} points -> {session_path}_map.ply")
-            print(f"       Trajectory: {trajectory_poses} poses -> {session_path}_trajectory.json")
+            print("[SLAM] Headless mode: Using simplified frame capture")
+
+            frame_count = 0
+            last_save_time = time.time()
+
+            while self.running:
+                try:
+                    # Simple frame capture and logging
+                    rgb, depth = slam_camera.get_frames()
+
+                    if rgb is not None and depth is not None:
+                        # Update shared data
+                        with self.shared_data['lock']:
+                            self.shared_data['slam_frame'] = rgb.copy()
+                            # For headless, we'll just track frame count as "trajectory"
+                            self.shared_data['slam_trajectory'] = list(range(frame_count))
+
+                        frame_count += 1
+
+                        # Log progress every 100 frames
+                        if frame_count % 100 == 0:
+                            print(f"[SLAM] Processed {frame_count} frames (headless mode)")
+
+                        # Save periodically (minimal data)
+                        current_time = time.time()
+                        if current_time - last_save_time >= self.save_interval:
+                            self.save_headless_slam_data(frame_count)
+                            last_save_time = current_time
+
+                    time.sleep(0.033)  # ~30 FPS
+
+                except Exception as e:
+                    if frame_count % 100 == 0:
+                        print(f"[SLAM] Frame error: {e}")
+                    time.sleep(0.1)
 
         except Exception as e:
-            print(f"[SLAM] Error saving data: {e}")
+            print(f"[SLAM] Headless error: {e}")
+
+    def save_headless_slam_data(self, frame_count):
+        """Save minimal data for headless SLAM."""
+        try:
+            session_path = self.data_dir / f"{self.session_name}_headless.json"
+            data = {
+                "session_name": self.session_name,
+                "frames_processed": frame_count,
+                "timestamp": time.time(),
+                "mode": "headless"
+            }
+
+            import json
+            with open(session_path, 'w') as f:
+                json.dump(data, f, indent=2)
+
+            print(f"[SLAM] Headless data saved: {frame_count} frames")
+
+        except Exception as e:
+            print(f"[SLAM] Error saving headless data: {e}")
+
+    def save_slam_data(self):
+        """Save SLAM data (updated for enhanced_slam_v2)."""
+        try:
+            if self.slam_headless:
+                # Already handled in run_headless_slam
+                return
+
+            # For GUI mode, the enhanced_slam_v2 saves data automatically
+            # when the window is closed, so we just log here
+            session_path = str(self.data_dir / self.session_name)
+            print(f"[SLAM] GUI SLAM auto-saves to: {session_path}_slam.npz")
+            print(f"[SLAM] Trajectory and mesh will be saved on window close")
+
+        except Exception as e:
+            print(f"[SLAM] Error in save_slam_data: {e}")
 
     def run_detection_system(self):
         """Run detection system with GUI display."""
@@ -457,7 +489,7 @@ class UnifiedSystem:
         cv2.imshow("Detection View", display_img)
 
     def start(self):
-        """Start both systems."""
+        """Start both systems with proper GUI handling."""
         # Get detection prompt if needed
         if self.config['detection']['active_model'] == 'detr' and \
                 self.config['detection']['detr']['variant'] == 'grounding-dino':
@@ -468,32 +500,42 @@ class UnifiedSystem:
 
         self.running = True
 
-        # Start SLAM first
-        print("\nStarting SLAM system...")
-        self.slam_thread = threading.Thread(target=self.run_slam_system, daemon=True)
-        self.slam_thread.start()
+        if self.slam_headless:
+            # Start SLAM in thread for headless mode
+            print("\nStarting SLAM system (headless)...")
+            self.slam_thread = threading.Thread(target=self.run_slam_system, daemon=True)
+            self.slam_thread.start()
+            time.sleep(2.0)
 
-        time.sleep(2.0)
+            # Start Detection
+            print("Starting Detection system...")
+            self.detection_thread = threading.Thread(target=self.run_detection_system, daemon=True)
+            self.detection_thread.start()
+            time.sleep(1.0)
 
-        # Start Detection
-        print("Starting Detection system...")
-        self.detection_thread = threading.Thread(target=self.run_detection_system, daemon=True)
-        self.detection_thread.start()
+            print("\n" + "=" * 60)
+            print("Systems running successfully!")
+            print("SLAM: Headless mode")
+            print("Detection GUI: Press 'q' in detection window to quit")
+            print("=" * 60 + "\n")
 
-        time.sleep(1.0)
+            # Keep main thread alive
+            try:
+                while self.running:
+                    time.sleep(1.0)
+            except KeyboardInterrupt:
+                self.stop()
+        else:
+            # For GUI SLAM, start detection first, then SLAM GUI (which blocks)
+            print("\nStarting Detection system...")
+            self.detection_thread = threading.Thread(target=self.run_detection_system, daemon=True)
+            self.detection_thread.start()
+            time.sleep(2.0)
 
-        print("\n" + "=" * 60)
-        print("Systems running successfully!")
-        print(f"SLAM data saving to: realsense_slam/src/data/sessions/{self.session_name}_*")
-        print("Detection GUI: Press 'q' in detection window to quit")
-        print("=" * 60 + "\n")
-
-        # Keep main thread alive
-        try:
-            while self.running:
-                time.sleep(1.0)
-        except KeyboardInterrupt:
-            self.stop()
+            print("Starting SLAM system (GUI mode)...")
+            print("Note: SLAM GUI will take control of main thread")
+            # This will block until SLAM GUI is closed
+            self.run_slam_system()
 
     def stop(self):
         """Stop both systems gracefully."""
@@ -526,6 +568,16 @@ class UnifiedSystem:
     def signal_handler(self, signum, frame):
         """Handle Ctrl+C gracefully."""
         print("\nReceived interrupt signal...")
+
+        # If SLAM GUI is running, try to close it properly
+        if not self.slam_headless and hasattr(self, 'slam_window'):
+            try:
+                # Close the Open3D GUI window to trigger save
+                import open3d.visualization.gui as gui
+                gui.Application.instance.quit()
+            except:
+                pass
+
         self.stop()
         sys.exit(0)
 

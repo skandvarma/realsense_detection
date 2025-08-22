@@ -1,0 +1,23 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 15ceebe..9049831 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -92,6 +92,8 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR})
+ set(ZLIB_PUBLIC_HDRS
+     ${CMAKE_CURRENT_BINARY_DIR}/zconf.h
+     zlib.h
++    contrib/minizip/unzip.h
++    contrib/minizip/ioapi.h
+ )
+ set(ZLIB_PRIVATE_HDRS
+     crc32.h
+@@ -120,6 +122,8 @@ set(ZLIB_SRCS
+     trees.c
+     uncompr.c
+     zutil.c
++    contrib/minizip/unzip.c
++    contrib/minizip/ioapi.c
+ )
+ 
+ if(NOT MINGW)
+ 

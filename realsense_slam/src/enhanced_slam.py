@@ -18,35 +18,37 @@ class EnhancedMinimalSLAM:
 
         # SLAM parameters
         self.params = {
-            'voxel_size': config.get('slam', {}).get('voxel_size', 0.01),
-            'max_points': config.get('slam', {}).get('max_points', 120000000),
-            'icp_threshold': config.get('slam', {}).get('icp_threshold', 0.02),
             'max_depth': config.get('slam', {}).get('max_depth', 3.0),
+            'depth_scale': config.get('slam', {}).get('depth_scale', 1000.0),
             'process_every_n': config.get('slam', {}).get('process_every_n', 1),
-            'accumulate_every_n': config.get('slam', {}).get('accumulate_every_n', 1)
+            'odometry_method': config.get('slam', {}).get('odometry_method', 'hybrid'),
+            'voxel_size': config.get('slam', {}).get('voxel_size', 0.01)
         }
 
         # Visual SLAM state
         self.current_pose = np.eye(4)
         self.trajectory = [self.current_pose.copy()]
-        self.map_cloud = o3d.geometry.PointCloud()
-        self.prev_cloud = None
-        self.prev_rgb = None
         self.frame_count = 0
         self.last_time = time.time()
 
-        # IMU trajectory tracking (MINIMAL ADDITION)
+        # RGB-D frames for odometry
+        self.prev_rgbd = None
+        self.current_rgbd = None
+
+        # Point cloud map for visualization
+        self.map_cloud = o3d.geometry.PointCloud()
+        self.trajectory_points = []
+
+        # IMU trajectory tracking
         self.imu_position = np.zeros(3)
         self.imu_velocity = np.zeros(3)
         self.imu_trajectory = [np.zeros(3)]
         self.trajectory_timestamps = [time.time()]
 
-        # Scale alignment (MINIMAL ADDITION)
+        # Scale alignment
         self.scale_factor = 1.0
-        self.scale_estimation_window = 20  # Use last 20 poses for scale estimation
+        self.scale_estimation_window = 20
         self.last_scale_update = 0
-
-        # MINIMAL ADDITION: Enhanced scale information tracking
         self.scale_history = []
         self.scale_confidence = 0.0
         self.scale_stability_count = 0
@@ -57,7 +59,7 @@ class EnhancedMinimalSLAM:
         self.motion_log = []
         self.stationary_count = 0
 
-        # Camera intrinsic for Open3D
+        # Open3D camera intrinsic
         height, width = config['camera']['height'], config['camera']['width']
         self.intrinsic = o3d.camera.PinholeCameraIntrinsic(
             width, height,
@@ -65,48 +67,69 @@ class EnhancedMinimalSLAM:
             intrinsics[0, 2], intrinsics[1, 2]
         )
 
-        print("Enhanced SLAM with detailed scale information initialized")
+        # Open3D odometry option with version compatibility
+        self.odometry_option = o3d.pipelines.odometry.OdometryOption()
+
+        # Set available attributes (varies by Open3D version)
+        available_attrs = dir(self.odometry_option)
+
+        if 'max_depth_diff' in available_attrs:
+            self.odometry_option.max_depth_diff = 0.07
+        if 'min_depth' in available_attrs:
+            self.odometry_option.min_depth = 0.1
+        if 'max_depth' in available_attrs:
+            self.odometry_option.max_depth = self.params['max_depth']
+        if 'depth_diff_threshold' in available_attrs:
+            self.odometry_option.depth_diff_threshold = 0.07
+        if 'depth_threshold' in available_attrs:
+            self.odometry_option.depth_threshold = [0.1, self.params['max_depth']]
+
+        print(f"Available odometry options: {[attr for attr in available_attrs if not attr.startswith('_')]}")
+
+        # Choose odometry method
+        if self.params['odometry_method'] == 'color':
+            self.odometry_method = o3d.pipelines.odometry.RGBDOdometryJacobianFromColorTerm()
+        elif self.params['odometry_method'] == 'depth':
+            self.odometry_method = o3d.pipelines.odometry.RGBDOdometryJacobianFromDepthTerm()
+        else:  # hybrid (default)
+            self.odometry_method = o3d.pipelines.odometry.RGBDOdometryJacobianFromHybridTerm()
+
+        print(f"Enhanced SLAM initialized with Open3D {self.params['odometry_method']} odometry")
+        print(f"Intrinsics: {self.intrinsic.intrinsic_matrix}")
 
     def update_imu_trajectory(self, accel, gyro, dt):
         """IMU trajectory tracking with proper coordinate alignment"""
         if accel is None or dt <= 0 or dt > 0.1:
             return
 
-        # APPLY COORDINATE ALIGNMENT TO IMU DATA
-        # Transform acceleration from IMU frame to SLAM frame
-        accel_4d = np.array([accel[0], accel[1], accel[2], 0])  # Homogeneous
+        # Apply coordinate alignment to IMU data
+        accel_4d = np.array([accel[0], accel[1], accel[2], 0])
         aligned_accel_4d = self.coordinate_aligner.camera_to_slam @ accel_4d
-        aligned_accel = aligned_accel_4d[:3]  # Back to 3D
+        aligned_accel = aligned_accel_4d[:3]
 
-        # Remove gravity (simple approximation)
+        # Remove gravity and integrate
         accel_magnitude = np.linalg.norm(aligned_accel)
-        if accel_magnitude > 5.0:  # Valid acceleration reading
-            # Simple gravity removal - assume gravity is dominant component
+        if accel_magnitude > 5.0:
             gravity_removed = max(0, accel_magnitude - 9.8)
 
-            # Apply in direction of acceleration
             if accel_magnitude > 0:
                 accel_direction = aligned_accel / accel_magnitude
                 world_accel = accel_direction * gravity_removed
             else:
                 world_accel = np.zeros(3)
 
-            # Simple integration (with damping to prevent runaway)
             self.imu_velocity += world_accel * dt
-            self.imu_velocity *= 0.95  # Damping factor
+            self.imu_velocity *= 0.95
 
             prev_position = self.imu_position.copy()
             self.imu_position += self.imu_velocity * dt
 
-            # MINIMAL ADDITION: Track cumulative IMU distance
             imu_step_distance = np.linalg.norm(self.imu_position - prev_position)
             self.cumulative_imu_distance += imu_step_distance
 
-            # Store in trajectory
             self.imu_trajectory.append(self.imu_position.copy())
             self.trajectory_timestamps.append(time.time())
 
-            # Keep trajectory manageable
             if len(self.imu_trajectory) > 1000:
                 self.imu_trajectory.pop(0)
                 self.trajectory_timestamps.pop(0)
@@ -116,61 +139,256 @@ class EnhancedMinimalSLAM:
         if len(self.trajectory) < self.scale_estimation_window:
             return
 
-        # Get recent trajectory segments
         visual_poses = self.trajectory[-self.scale_estimation_window:]
         imu_positions = self.imu_trajectory[-self.scale_estimation_window:]
 
         if len(imu_positions) < self.scale_estimation_window:
             return
 
-        # Calculate distances traveled
         visual_distance = 0.0
         imu_distance = 0.0
 
         for i in range(1, len(visual_poses)):
-            # Visual SLAM distance
             visual_pos1 = visual_poses[i - 1][:3, 3]
             visual_pos2 = visual_poses[i][:3, 3]
             visual_step = np.linalg.norm(visual_pos2 - visual_pos1)
             visual_distance += visual_step
-
-            # MINIMAL ADDITION: Track cumulative visual distance
             self.cumulative_visual_distance += visual_step
 
-            # IMU distance
             imu_pos1 = imu_positions[i - 1]
             imu_pos2 = imu_positions[i]
             imu_distance += np.linalg.norm(imu_pos2 - imu_pos1)
 
-        # Estimate scale factor
-        if visual_distance > 0.01 and imu_distance > 0.01:  # Minimum movement threshold
+        if visual_distance > 0.01 and imu_distance > 0.01:
             new_scale = imu_distance / visual_distance
 
-            # MINIMAL ADDITION: Track scale history and confidence
             self.scale_history.append(new_scale)
             if len(self.scale_history) > 10:
                 self.scale_history.pop(0)
 
-            # Calculate scale confidence based on stability
             if len(self.scale_history) >= 3:
                 scale_variance = np.var(self.scale_history[-3:])
                 self.scale_confidence = max(0.0, 1.0 - scale_variance * 10)
 
-                # Track stability
-                if scale_variance < 0.01:  # Low variance = stable
+                if scale_variance < 0.01:
                     self.scale_stability_count += 1
                 else:
                     self.scale_stability_count = 0
 
-            # Simple moving average for stability
-            alpha = 0.1  # Smoothing factor
+            alpha = 0.1
             self.scale_factor = alpha * new_scale + (1 - alpha) * self.scale_factor
 
             print(f"Scale factor updated: {self.scale_factor:.3f} "
                   f"(IMU: {imu_distance:.3f}m, Visual: {visual_distance:.3f}m, "
                   f"Confidence: {self.scale_confidence:.2f})")
 
-    # MINIMAL ADDITION: Enhanced scale information methods
+    def create_rgbd_image(self, rgb, depth):
+        """Create Open3D RGB-D image from numpy arrays"""
+        # Convert RGB to Open3D format
+        color_o3d = o3d.geometry.Image(cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB))
+
+        # Convert depth to Open3D format (ensure correct data type)
+        depth_o3d = o3d.geometry.Image(depth.astype(np.float32))
+
+        # Create RGB-D image
+        rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
+            color_o3d, depth_o3d,
+            depth_scale=1.0,  # Already converted to meters
+            depth_trunc=self.params['max_depth'],
+            convert_rgb_to_intensity=False
+        )
+
+        return rgbd
+
+    def compute_visual_odometry(self, current_rgbd, prev_rgbd):
+        """Compute visual odometry using Open3D RGB-D odometry pipeline"""
+
+        # Initial transformation guess
+        odo_init = np.eye(4)
+
+        # Compute RGB-D odometry
+        success, transformation, info = o3d.pipelines.odometry.compute_rgbd_odometry(
+            prev_rgbd,  # source (previous frame)
+            current_rgbd,  # target (current frame)
+            self.intrinsic,  # camera intrinsic
+            odo_init,  # initial transformation guess
+            self.odometry_method,  # odometry method (color/depth/hybrid)
+            self.odometry_option  # odometry options
+        )
+
+        return success, transformation, info
+
+    def create_point_cloud_from_rgbd(self, rgbd_image, pose=None):
+        """Create point cloud from RGB-D image"""
+        pcd = o3d.geometry.PointCloud.create_from_rgbd_image(
+            rgbd_image, self.intrinsic
+        )
+
+        if pose is not None:
+            pcd.transform(pose)
+
+        if len(pcd.points) > 0:
+            pcd = pcd.voxel_down_sample(self.params['voxel_size'])
+
+        return pcd
+
+    def process_frame(self, rgb, depth, accel=None, gyro=None):
+        """Enhanced frame processing with Open3D RGB-D odometry"""
+        self.frame_count += 1
+        current_time = time.time()
+        dt = current_time - self.last_time
+
+        # Update IMU trajectory
+        self.update_imu_trajectory(accel, gyro, dt)
+
+        # Skip frames for performance if configured
+        if self.frame_count % self.params['process_every_n'] != 0:
+            self.last_time = current_time
+            return
+
+        # Motion detection
+        motion_result = self.analyze_motion(rgb, accel, gyro, dt)
+
+        # Log motion analysis
+        self.motion_log.append({
+            'frame': self.frame_count,
+            'timestamp': current_time,
+            'motion_detected': motion_result['decision']['has_motion'],
+            'visual_motion': motion_result['visual']['has_motion'],
+            'imu_motion': motion_result['imu']['has_motion'],
+            'agreement': motion_result['decision']['agreement'],
+            'should_update': motion_result['decision']['should_update_slam']
+        })
+
+        # Process SLAM update based on motion
+        if motion_result['decision']['should_update_slam']:
+            self.process_slam_update(rgb, depth, motion_result)
+        else:
+            self.stationary_count += 1
+            self.trajectory.append(self.current_pose.copy())
+
+        # Update scale factor periodically
+        if self.frame_count - self.last_scale_update > 30:
+            self.estimate_scale_factor()
+            self.last_scale_update = self.frame_count
+
+        self.last_time = current_time
+
+    def process_slam_update(self, rgb, depth, motion_result):
+        """Process SLAM update using Open3D RGB-D odometry"""
+
+        # Create current RGB-D image
+        self.current_rgbd = self.create_rgbd_image(rgb, depth)
+
+        if self.prev_rgbd is not None:
+            # Compute visual odometry using Open3D
+            success, transformation, info = self.compute_visual_odometry(
+                self.current_rgbd, self.prev_rgbd
+            )
+
+            if success:
+                # Validate transformation
+                if self.validate_transform(transformation, motion_result):
+                    # Update pose
+                    self.current_pose = np.dot(self.current_pose, transformation)
+                    print(f"Frame {self.frame_count}: Odometry success, "
+                          f"translation: {np.linalg.norm(transformation[:3, 3]):.4f}m")
+                else:
+                    print(f"Frame {self.frame_count}: Transform rejected (too large)")
+
+                self.trajectory.append(self.current_pose.copy())
+
+                # Update trajectory points for visualization
+                self.trajectory_points.append(self.current_pose[:3, 3].copy())
+
+            else:
+                print(f"Frame {self.frame_count}: Odometry failed")
+                self.trajectory.append(self.current_pose.copy())
+
+            # Accumulate point cloud for mapping
+            self.accumulate_to_map()
+
+        else:
+            # First frame
+            self.trajectory.append(self.current_pose.copy())
+            self.trajectory_points.append(self.current_pose[:3, 3].copy())
+            print(f"Frame {self.frame_count}: First frame initialized")
+
+        # Update for next iteration
+        self.prev_rgbd = self.current_rgbd
+
+    def accumulate_to_map(self):
+        """Accumulate current frame to point cloud map"""
+        if self.current_rgbd is not None:
+            # Create point cloud from current RGB-D with current pose
+            pcd = self.create_point_cloud_from_rgbd(self.current_rgbd, self.current_pose)
+
+            if len(pcd.points) > 0:
+                # Add to map
+                self.map_cloud += pcd
+
+                # Downsample map if it gets too large
+                if len(self.map_cloud.points) > 100000:
+                    self.map_cloud = self.map_cloud.voxel_down_sample(self.params['voxel_size'] * 1.5)
+                    print(f"Map downsampled to {len(self.map_cloud.points)} points")
+
+    def analyze_motion(self, rgb, accel, gyro, dt):
+        """Analyze motion using visual-IMU detector"""
+        visual_motion = self.motion_detector.detect_visual_motion(rgb)
+        imu_motion = self.motion_detector.analyze_imu_motion(accel, gyro, dt)
+        motion_decision = self.motion_detector.fuse_motion_detection(visual_motion, imu_motion, dt)
+
+        return {
+            'visual': visual_motion,
+            'imu': imu_motion,
+            'decision': motion_decision
+        }
+
+    def validate_transform(self, transform, motion_result):
+        """Validate transform against motion detection"""
+        translation = np.linalg.norm(transform[:3, 3])
+        rotation_angle = np.arccos(np.clip((np.trace(transform[:3, :3]) - 1) / 2, -1, 1))
+
+        # Reasonable motion thresholds
+        max_translation = 0.3  # 30cm per frame
+        max_rotation = 0.5  # ~30 degrees per frame
+
+        return translation <= max_translation and rotation_angle <= max_rotation
+
+    def get_map(self):
+        """Get current map point cloud"""
+        return self.map_cloud
+
+    def get_trajectory(self):
+        """Return scale-aligned visual trajectory"""
+        return self.get_aligned_trajectory()
+
+    def get_aligned_trajectory(self):
+        """Return visual trajectory aligned with IMU scale"""
+        aligned_trajectory = []
+
+        for pose in self.trajectory:
+            aligned_pose = pose.copy()
+            aligned_pose[:3, 3] *= self.scale_factor
+            aligned_trajectory.append(aligned_pose)
+
+        return aligned_trajectory
+
+    def get_imu_trajectory(self):
+        """Return IMU trajectory for visualization"""
+        return self.get_imu_trajectory_poses()
+
+    def get_imu_trajectory_poses(self):
+        """Convert IMU positions to 4x4 pose format for visualization"""
+        imu_poses = []
+
+        for position in self.imu_trajectory:
+            pose = np.eye(4)
+            pose[:3, 3] = position
+            imu_poses.append(pose)
+
+        return imu_poses
+
     def get_scale_info(self):
         """Get comprehensive scale information"""
         scale_quality = "Unknown"
@@ -194,211 +412,6 @@ class EnhancedMinimalSLAM:
             'total_distance_ratio': self.cumulative_imu_distance / max(0.001, self.cumulative_visual_distance)
         }
 
-    def get_aligned_trajectory(self):
-        """Return visual trajectory aligned with IMU scale"""
-        aligned_trajectory = []
-
-        for pose in self.trajectory:
-            aligned_pose = pose.copy()
-            # Apply scale factor to translation component
-            aligned_pose[:3, 3] *= self.scale_factor
-            aligned_trajectory.append(aligned_pose)
-
-        return aligned_trajectory
-
-    def get_imu_trajectory_poses(self):
-        """Convert IMU positions to 4x4 pose format for visualization"""
-        imu_poses = []
-
-        for position in self.imu_trajectory:
-            pose = np.eye(4)
-            pose[:3, 3] = position
-            imu_poses.append(pose)
-
-        return imu_poses
-
-    def create_point_cloud(self, rgb, depth):
-        """Create point cloud from RGB-D"""
-        color_o3d = o3d.geometry.Image(cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB))
-        depth_o3d = o3d.geometry.Image(depth.astype(np.float32))
-
-        rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
-            color_o3d, depth_o3d,
-            depth_scale=1.0,
-            depth_trunc=self.params['max_depth'],
-            convert_rgb_to_intensity=False
-        )
-
-        pcd = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd, self.intrinsic)
-
-        if len(pcd.points) > 0:
-            pcd = pcd.voxel_down_sample(self.params['voxel_size'])
-            # REMOVED: coordinate alignment
-
-        return pcd
-
-    def estimate_pose(self, source_pcd, target_pcd):
-        """ICP pose estimation"""
-        if len(source_pcd.points) < 100 or len(target_pcd.points) < 100:
-            return False, np.eye(4)
-
-        # FIX: Correct parameter order (source, target not target, source)
-        result = o3d.pipelines.registration.registration_icp(
-            source_pcd, target_pcd,  # FIXED ORDER
-            self.params['icp_threshold'],
-            np.eye(4),
-            o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-            o3d.pipelines.registration.ICPConvergenceCriteria(
-                relative_fitness=1e-6,
-                relative_rmse=1e-6,
-                max_iteration=30  # Increased from 10
-            )
-        )
-
-        return result.fitness > 0.1, result.transformation
-
-
-    def process_frame(self, rgb, depth, accel=None, gyro=None):
-        """Enhanced frame processing with motion detection and trajectory alignment"""
-        self.frame_count += 1
-        current_time = time.time()
-        dt = current_time - self.last_time
-
-        # Update IMU trajectory (MINIMAL ADDITION)
-        self.update_imu_trajectory(accel, gyro, dt)
-
-        # Skip frames for performance if configured
-        if self.frame_count % self.params['process_every_n'] != 0:
-            self.last_time = current_time
-            return
-
-        # Motion detection
-        motion_result = self.analyze_motion(rgb, accel, gyro, dt)
-
-        # Log motion analysis
-        self.motion_log.append({
-            'frame': self.frame_count,
-            'timestamp': current_time,
-            'motion_detected': motion_result['decision']['has_motion'],
-            'visual_motion': motion_result['visual']['has_motion'],
-            'imu_motion': motion_result['imu']['has_motion'],
-            'agreement': motion_result['decision']['agreement'],
-            'should_update': motion_result['decision']['should_update_slam']
-        })
-
-        # Only process SLAM if motion is detected
-        if motion_result['decision']['should_update_slam']:
-            self.process_slam_update(rgb, depth, motion_result)
-        else:
-            # If no motion, don't update pose but still count as stationary
-            self.stationary_count += 1
-            self.trajectory.append(self.current_pose.copy())
-
-        # Update scale factor periodically (MINIMAL ADDITION)
-        if self.frame_count - self.last_scale_update > 30:  # Every 30 frames
-            self.estimate_scale_factor()
-            self.last_scale_update = self.frame_count
-
-        self.last_time = current_time
-
-    def analyze_motion(self, rgb, accel, gyro, dt):
-        """Analyze motion using visual-IMU detector"""
-        visual_motion = self.motion_detector.detect_visual_motion(rgb)
-        imu_motion = self.motion_detector.analyze_imu_motion(accel, gyro, dt)
-        motion_decision = self.motion_detector.fuse_motion_detection(visual_motion, imu_motion, dt)
-
-        return {
-            'visual': visual_motion,
-            'imu': imu_motion,
-            'decision': motion_decision
-        }
-
-    def process_slam_update(self, rgb, depth, motion_result):
-        """Process SLAM update when motion is detected"""
-        current_pcd = self.create_point_cloud(rgb, depth)
-
-        if len(current_pcd.points) == 0:
-            return
-
-        # Debug: Check map before processing
-        map_before = len(self.map_cloud.points)
-
-        if self.prev_cloud is not None:
-            success, transform = self.estimate_pose(current_pcd, self.prev_cloud)
-
-            if success:
-                transform_valid = self.validate_transform(transform, motion_result)
-
-                if transform_valid:
-                    self.current_pose = np.dot(self.current_pose, transform)
-                    self.trajectory.append(self.current_pose.copy())
-                else:
-                    self.trajectory.append(self.current_pose.copy())
-            else:
-                self.trajectory.append(self.current_pose.copy())
-        else:
-            self.trajectory.append(self.current_pose.copy())
-
-        # Accumulate to map
-        if self.frame_count % self.params.get('accumulate_every_n', 1) == 0:
-            self.accumulate_to_map(current_pcd)
-
-            # Debug: Verify map is growing
-            map_after = len(self.map_cloud.points)
-            if map_after <= map_before and map_before > 0:
-                print(f"WARNING: Map not growing! Before: {map_before}, After: {map_after}")
-
-        self.prev_cloud = current_pcd
-
-    def validate_transform(self, transform, motion_result):
-        """Validate transform against motion detection"""
-        translation = np.linalg.norm(transform[:3, 3])
-        rotation_angle = np.arccos(np.clip((np.trace(transform[:3, :3]) - 1) / 2, -1, 1))
-
-        # RELAXED thresholds
-        max_translation = 0.5  # Increased from 0.2
-        max_rotation = 1.0  # Increased from 0.5
-
-        return translation <= max_translation and rotation_angle <= max_rotation
-
-    def accumulate_to_map(self, pcd):
-        if len(pcd.points) == 0:
-            return
-
-        # Copy and transform
-        pcd_world = o3d.geometry.PointCloud(pcd)
-        pcd_world.transform(self.current_pose)
-
-        # Track counts for debugging
-        old_count = len(self.map_cloud.points)
-
-        # Add to map
-        if old_count == 0:
-            self.map_cloud = pcd_world
-            print(f"Initialized map with {len(self.map_cloud.points)} points")
-        else:
-            # CRITICAL: Actually accumulateq
-            self.map_cloud += pcd_world
-            new_count = len(self.map_cloud.points)
-            print(f"Accumulation: {old_count} + {len(pcd_world.points)} = {new_count}")
-
-            # Only downsample if WAY over limit (2x)
-            if new_count > self.params['max_points'] * 2:
-                print(f"WARNING: Downsampling from {new_count} points")
-                self.map_cloud = self.map_cloud.voxel_down_sample(self.params['voxel_size'] * 1.2)
-                print(f"Downsampled to {len(self.map_cloud.points)} points")
-
-    def get_map(self):
-        return self.map_cloud
-
-    def get_trajectory(self):
-        """Return scale-aligned visual trajectory"""
-        return self.get_aligned_trajectory()
-
-    def get_imu_trajectory(self):
-        """Return IMU trajectory for visualization"""
-        return self.get_imu_trajectory_poses()
-
     def get_motion_stats(self):
         """Get motion detection statistics with enhanced scale information"""
         if len(self.motion_log) < 10:
@@ -416,7 +429,6 @@ class EnhancedMinimalSLAM:
         drift_detections = sum(1 for entry in recent_log if entry['agreement'] == 'imu_drift_detected')
         drift_rate = drift_detections / total_frames if total_frames > 0 else 0
 
-        # MINIMAL ADDITION: Include detailed scale information
         scale_info = self.get_scale_info()
 
         return {
@@ -426,76 +438,152 @@ class EnhancedMinimalSLAM:
             'drift_detection_rate': drift_rate,
             'agreement_counts': agreement_counts,
             'scale_factor': self.scale_factor,
-            'scale_info': scale_info  # scale information
+            'scale_info': scale_info,
+            'slam_mode': f'Open3D {self.params["odometry_method"].upper()}'
         }
 
+    def visualize_trajectory_open3d(self):
+        """Visualize trajectory using Open3D visualizer"""
+        if len(self.trajectory_points) < 2:
+            return
+
+        # Create trajectory line set
+        points = o3d.utility.Vector3dVector(self.trajectory_points)
+        lines = [[i, i + 1] for i in range(len(self.trajectory_points) - 1)]
+
+        trajectory_lines = o3d.geometry.LineSet()
+        trajectory_lines.points = points
+        trajectory_lines.lines = o3d.utility.Vector2iVector(lines)
+
+        # Green color for trajectory
+        colors = [[0, 1, 0] for _ in range(len(lines))]
+        trajectory_lines.colors = o3d.utility.Vector3dVector(colors)
+
+        # Coordinate frame at origin
+        coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
+
+        # Visualize
+        geometries = [coord_frame, trajectory_lines]
+        if len(self.map_cloud.points) > 0:
+            geometries.append(self.map_cloud)
+
+        o3d.visualization.draw_geometries(geometries,
+                                          window_name="Open3D SLAM - Trajectory and Map",
+                                          width=1024, height=768)
+
     def save_session(self, filename):
-        """Save session with comprehensive scale information"""
+        """Save session with comprehensive data"""
+        # Save point cloud map
         o3d.io.write_point_cloud(f"{filename}_map.ply", self.map_cloud)
 
-        # session data with scale information
-        scale_info = self.get_scale_info()
-
-        session_data = {
+        # Save trajectory as poses
+        trajectory_data = {
             "visual_poses": [pose.tolist() for pose in self.get_aligned_trajectory()],
             "imu_poses": [pose.tolist() for pose in self.get_imu_trajectory()],
             "scale_factor": self.scale_factor,
-            "scale_info": scale_info,  # Comprehensive scale information
+            "scale_info": self.get_scale_info(),
             "frame_count": self.frame_count,
             "params": self.params,
             "motion_stats": self.get_motion_stats(),
-            "motion_log": self.motion_log[-1000:]
+            "motion_log": self.motion_log[-1000:],
+            "slam_mode": f'Open3D {self.params["odometry_method"].upper()} Odometry'
         }
 
         with open(f"{filename}_trajectory.json", 'w') as f:
-            json.dump(session_data, f, indent=2)
+            json.dump(trajectory_data, f, indent=2)
 
         with open(f"{filename}_motion_log.json", 'w') as f:
             json.dump(self.motion_log, f, indent=2)
 
-        # MINIMAL ADDITION: Print detailed scale information
-        print(f"Session saved with comprehensive scale information:")
+        print(f"Session saved with Open3D {self.params['odometry_method']} odometry:")
         print(f"  Scale factor: {self.scale_factor:.3f}")
-        print(f"  Scale confidence: {scale_info['scale_confidence']:.2f}")
-        print(f"  Scale quality: {scale_info['scale_quality']}")
-        print(f"  Total visual distance: {scale_info['cumulative_visual_distance']:.3f}m")
-        print(f"  Total IMU distance: {scale_info['cumulative_imu_distance']:.3f}m")
+        print(f"  Scale confidence: {self.get_scale_info()['scale_confidence']:.2f}")
+        print(f"  Map points: {len(self.map_cloud.points)}")
+        print(f"  Trajectory length: {len(self.trajectory)} poses")
 
 
 def main():
-    """Test enhanced SLAM with detailed scale information"""
-    with open('../config/config.json', 'r') as f:
-        config = json.load(f)
+    """Test Open3D RGB-D odometry integration"""
+    config = {
+        "camera": {"width": 640, "height": 480, "fps": 30},
+        "slam": {
+            "max_depth": 3.0,
+            "depth_scale": 1000.0,
+            "process_every_n": 1,
+            "odometry_method": "hybrid",  # color, depth, or hybrid
+            "voxel_size": 0.01
+        },
+        "viz": {
+            "point_size": 2,
+            "background": [0, 0, 0]
+        }
+    }
 
     from camera import D435iCamera
 
-    print("Testing Enhanced SLAM with Detailed Scale Information...")
+    print("Testing Open3D RGB-D Odometry Pipeline...")
     camera = D435iCamera(config)
     intrinsics = camera.get_intrinsics()
     slam = EnhancedMinimalSLAM(intrinsics, config)
 
+    print("Waiting for camera to warm up...")
+    time.sleep(2)
+
+    frames_processed = 0
+    none_frame_count = 0
+    max_none_frames = 50
+
     try:
-        for i in range(200):
+        for i in range(500):
             rgb, depth = camera.get_frames()
             accel, gyro = camera.get_imu_data()
 
             if rgb is not None and depth is not None:
                 depth_meters = depth.astype(np.float32) / 1000.0
                 slam.process_frame(rgb, depth_meters, accel, gyro)
+                frames_processed += 1
 
-                if i % 30 == 0:
+                if frames_processed % 30 == 0:
                     stats = slam.get_motion_stats()
                     scale_info = stats.get('scale_info', {})
-                    print(f"Frame {i}: "
-                          f"Visual trajectory: {len(slam.get_trajectory())} poses, "
-                          f"IMU trajectory: {len(slam.get_imu_trajectory())} poses, "
-                          f"Scale factor: {stats.get('scale_factor', 1.0):.3f} "
-                          f"({scale_info.get('scale_quality', 'Unknown')}), "
-                          f"Map points: {len(slam.get_map().points)}")
+                    print(f"Frame {frames_processed}: "
+                          f"Mode: {stats.get('slam_mode', 'Unknown')}, "
+                          f"Trajectory: {len(slam.get_trajectory())} poses, "
+                          f"Map: {len(slam.get_map().points)} points, "
+                          f"Scale: {stats.get('scale_factor', 1.0):.3f}")
 
-        slam.save_session("../data/sessions/enhanced_scale_test")
-        print("Enhanced SLAM with detailed scale information test complete")
+                if frames_processed >= 200:
+                    break
+            else:
+                none_frame_count += 1
+                if none_frame_count <= 10:
+                    print(f"Waiting for frames... (attempt {none_frame_count})")
 
+                if none_frame_count >= max_none_frames:
+                    print(f"Camera not providing frames after {max_none_frames} attempts")
+                    break
+
+                time.sleep(0.1)
+
+        print(f"Processed {frames_processed} frames total")
+
+        if frames_processed > 0:
+            slam.save_session("../data/sessions/open3d_odometry_test")
+
+            # Visualize results
+            print("Showing trajectory and map visualization...")
+            slam.visualize_trajectory_open3d()
+
+            print("Open3D RGB-D odometry test complete")
+        else:
+            print("No frames processed")
+
+    except KeyboardInterrupt:
+        print("Test interrupted by user")
+    except Exception as e:
+        print(f"Test failed with error: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         camera.stop()
 

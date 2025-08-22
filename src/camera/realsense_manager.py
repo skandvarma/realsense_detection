@@ -332,18 +332,28 @@ class CameraShareManager:
                 time.sleep(0.1)
 
     def get_frames_for_subscriber(self, subscriber_id):
-        """Get frames for specific subscriber (NEW METHOD)."""
+        """Get frames for specific subscriber with improved initial frame handling."""
         with self.frame_lock:
             if subscriber_id in self.subscriber_frames:
                 frames = self.subscriber_frames[subscriber_id]
                 if frames and 'color' in frames:
-                    # Check if this is a new frame for this subscriber
+                    # For initial frames or if frame tracking fails, just return the frames
                     last_frame_id = self.subscriber_last_frame.get(subscriber_id, -1)
                     current_frame_id = frames.get('frame_id', 0)
 
-                    if current_frame_id > last_frame_id:
+                    # More permissive: return frames if new OR if we haven't got any frames yet
+                    if current_frame_id > last_frame_id or last_frame_id == -1:
                         self.subscriber_last_frame[subscriber_id] = current_frame_id
                         return frames['color'].copy(), frames['depth'].copy()
+
+                    # Fallback: if frame ID logic blocks, still return frames after some time
+                    if time.time() - frames.get('timestamp', 0) < 1.0:  # Fresh frame
+                        return frames['color'].copy(), frames['depth'].copy()
+
+            # Final fallback: use latest_frames if subscriber buffer is empty
+            if self.latest_frames and 'color' in self.latest_frames:
+                return self.latest_frames['color'].copy(), self.latest_frames['depth'].copy()
+
             return None, None
 
     def _attempt_restart(self):

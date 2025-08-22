@@ -87,7 +87,7 @@ detection:
   detr:
     variant: "grounding-dino"  # Options: detr-resnet-50, detr-resnet-101, conditional-detr-resnet-50, grounding-dino
     model_path: "data/models/"
-    model_name: "IDEA-Research/grounding-dino-base"
+    model_name: "IDEA-Research/grounding-dino-tiny"
 
     # Detection Parameters
     confidence_threshold: 0.2

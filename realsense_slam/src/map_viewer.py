@@ -31,7 +31,7 @@ class MapViewer:
         print(f"Loading session: {session_path}")
 
         # Load point cloud map
-        map_file = f"{session_path}_map.ply"
+        map_file = f"{session_path}_slam.ply"
         trajectory_file = f"{session_path}_trajectory.json"
 
         if not os.path.exists(map_file):
