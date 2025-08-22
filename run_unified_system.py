@@ -198,7 +198,7 @@ class UnifiedSystem:
                     self.depth_max = config_dict.get('slam', {}).get('max_depth', 3.0)
                     self.depth_min = 0.1
                     self.odometry_distance_thr = 0.15
-                    self.device = "CPU:0"  # or "CUDA:0" if available
+                    self.device = "CUDA:0"  # or "CUDA:0" if available
                     self.path_npz = f"realsense_slam/data/sessions/{session_name}_slam.npz"
                     # Add missing engine attribute
                     self.engine = "tensor"  # or "legacy" - determines mesh extraction method

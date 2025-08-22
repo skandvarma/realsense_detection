@@ -22,6 +22,15 @@ __pycache__/
 *.wav
 *.flac
 *.ogg
+# Ignore large output files
+*.ply
+*.npz
+*.bin
+*.log
+*.chkpt
+*.tar
+*.zip
+
 
 # C extensions
 *.so

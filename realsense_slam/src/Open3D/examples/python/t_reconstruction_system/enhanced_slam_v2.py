@@ -446,7 +446,7 @@ class ReconstructionWindow:
                         or (self.idx == 3):
                     pcd = self.model.voxel_grid.extract_point_cloud(
                         3.0, self.est_point_count_slider.int_value).to(
-                        o3d.core.Device('CPU:0'))
+                        o3d.core.Device('CUDA:0'))
                     self.is_scene_updated = True
                 else:
                     self.is_scene_updated = False
