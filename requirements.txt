@@ -24,3 +24,4 @@ tqdm>=4.65.0
 
 # Optional: For enhanced logging
 colorlog>=6.7.0
+open3d

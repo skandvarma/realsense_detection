@@ -24,7 +24,7 @@ class JetsonRealSenseCamera:
                 # Test capture
                 ret, frame = cap.read()
                 if ret:
-                    print(f"✅ Found working camera at /dev/video{i}")
+                    print(f"Found working camera at /dev/video{i}")
                     if self.color_cap is None:
                         self.color_cap = cap
                         print(f"   Using as color camera: {frame.shape}")
