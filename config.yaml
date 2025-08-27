@@ -1,11 +1,17 @@
 # RealSense Depth Camera 435i Configuration
 camera:
-  device_id: 0  # Device ID for multiple camera support
+  device_id: 0
+  width: 640
+  height: 480
+  fps: 30
+  resolution: [640, 480]  # Required field that was missing
 
-  # Stream Resolution Settings
-  resolution:
-    width: 640
-    height: 480
+  # ROS2 Topic Configuration
+  ros2:
+    enabled: true
+    color_topic: "/camera/camera/color/image_raw"
+    depth_topic: "/camera/camera/aligned_depth_to_color/image_raw"
+    camera_info_topic: "/camera/camera/color/camera_info"
 
   # Stream Configuration
   streams:
@@ -14,14 +20,13 @@ camera:
       width: 640
       height: 480
       framerate: 30
-      format: "RGB8"
-
+      format: BGR8
     depth:
       enabled: true
       width: 640
       height: 480
       framerate: 30
-      format: "Z16"
+      format: Z16
 
     infrared:
       enabled: false
@@ -33,7 +38,6 @@ camera:
   # Stream Alignment
   alignment:
     align_depth_to_color: true
-    align_color_to_depth: false
 
   # Depth Filtering Parameters
   filters:
