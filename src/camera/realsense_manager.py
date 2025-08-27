@@ -987,18 +987,36 @@ class D435iCamera:
         return self.camera_manager.get_imu_data()
 
     def get_intrinsics(self):
-        """Return intrinsic matrix (SLAM interface)."""
-        if self.intrinsics is None:
-            # Fallback intrinsics
+        """Return intrinsic matrix (SLAM interface) - extracted using RealSenseManager method."""
+        try:
+            # Try to get intrinsics from camera manager's profile (same as RealSenseManager approach)
+            if hasattr(self.camera_manager, 'profile') and self.camera_manager.profile:
+                color_stream = self.camera_manager.profile.get_stream(rs.stream.color)
+                color_intrinsics = color_stream.as_video_stream_profile().get_intrinsics()
+
+                fx, fy = color_intrinsics.fx, color_intrinsics.fy
+                cx, cy = color_intrinsics.ppx, color_intrinsics.ppy
+
+            elif self.camera_manager.intrinsics is not None:
+                # Fallback to existing intrinsics
+                fx, fy = self.camera_manager.intrinsics.fx, self.camera_manager.intrinsics.fy
+                cx, cy = self.camera_manager.intrinsics.ppx, self.camera_manager.intrinsics.ppy
+
+            else:
+                # Final fallback intrinsics
+                width = self.config["camera"]["width"]
+                height = self.config["camera"]["height"]
+                fx, fy = 500.0, 500.0
+                cx, cy = width / 2, height / 2
+                print(f"Using fallback intrinsics: {fx}, {fy}, {cx}, {cy}")
+
+        except Exception as e:
+            # Fallback intrinsics on error
             width = self.config["camera"]["width"]
             height = self.config["camera"]["height"]
-            fx, fy = 500.0, 500.0  # Default focal lengths
+            fx, fy = 500.0, 500.0
             cx, cy = width / 2, height / 2
-
-            print(f"Using fallback intrinsics: {fx}, {fy}, {cx}, {cy}")
-        else:
-            fx, fy = self.intrinsics.fx, self.intrinsics.fy
-            cx, cy = self.intrinsics.ppx, self.intrinsics.ppy
+            print(f"Error extracting intrinsics, using fallback: {e}")
 
         intrinsic_matrix = np.array([
             [fx, 0, cx],

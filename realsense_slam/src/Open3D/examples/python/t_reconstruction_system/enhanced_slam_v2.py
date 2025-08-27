@@ -45,7 +45,7 @@ class ReconstructionWindow:
         self.config = config
 
         self.window = gui.Application.instance.create_window(
-            'Open3D - Reconstruction', 1280, 800)
+            'Open3D - Reconstruction', 1280, 720)
 
         w = self.window
         em = w.theme.font_size

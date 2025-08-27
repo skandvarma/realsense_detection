@@ -11,7 +11,7 @@ path_color_intrinsic: ''
 depth_min: 0.1
 depth_max: 3.0
 depth_scale: 1000.0
-odometry_method: hybrid
+odometry_method: frame2model
 odometry_loop_interval: 10
 odometry_loop_weight: 0.1
 odometry_distance_thr: 0.07

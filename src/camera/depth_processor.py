@@ -50,7 +50,7 @@ class DepthProcessor:
 
         # Depth processing parameters
         self.min_distance = self.depth_config.get('min_distance', 0.1)  # meters
-        self.max_distance = self.depth_config.get('max_distance', 10.0)  # meters
+        self.max_distance = self.depth_config.get('max_distance', 3.0)  # meters
         self.depth_scale = None
         self.depth_intrinsics = None
 

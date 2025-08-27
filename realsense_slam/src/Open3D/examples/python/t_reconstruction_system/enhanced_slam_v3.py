@@ -22,9 +22,11 @@ import sys
 import numpy as np
 import threading
 import time
-import signal
 from common import load_rgbd_file_names, save_poses, load_intrinsic, extract_trianglemesh, get_default_dataset, \
     extract_rgbd_frames
+from collections import deque
+from scipy.spatial.transform import Rotation as R
+from scipy import signal
 
 # Add project root to Python path for imports
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../../../..'))
@@ -40,13 +42,195 @@ def set_enabled(widget, enable):
         child.enabled = enable
 
 
+class IMUProcessor:
+    """Handles IMU data processing and fusion with visual odometry"""
+
+    def __init__(self, buffer_size=100):
+        self.buffer_size = buffer_size
+        self.accel_buffer = deque(maxlen=buffer_size)
+        self.gyro_buffer = deque(maxlen=buffer_size)
+        self.timestamp_buffer = deque(maxlen=buffer_size)
+
+        # Calibration parameters
+        self.gravity = np.array([0, 0, -9.81])
+        self.accel_bias = np.zeros(3)
+        self.gyro_bias = np.zeros(3)
+
+        # Current state
+        self.orientation = np.eye(3)
+        self.velocity = np.zeros(3)
+        self.position = np.zeros(3)
+
+        # Filter parameters
+        self.alpha = 0.98  # Complementary filter coefficient
+        self.last_timestamp = None
+
+        # Low-pass filter for accelerometer
+        self.b, self.a = signal.butter(4, 0.1, 'low')
+
+    def add_measurement(self, accel, gyro, timestamp):
+        """Add new IMU measurement to buffers"""
+        if accel is not None and gyro is not None:
+            # Ensure numpy arrays
+            if not isinstance(accel, np.ndarray):
+                accel = np.array(accel)
+            if not isinstance(gyro, np.ndarray):
+                gyro = np.array(gyro)
+
+            self.accel_buffer.append(accel)
+            self.gyro_buffer.append(gyro)
+            self.timestamp_buffer.append(timestamp)
+
+    def calibrate(self, static_duration=2.0):
+        """Calibrate IMU biases during static period"""
+        if len(self.accel_buffer) > 0:
+            recent_accel = np.array(list(self.accel_buffer)[-30:])
+            recent_gyro = np.array(list(self.gyro_buffer)[-30:])
+
+            if len(recent_accel) > 0:
+                self.accel_bias = np.mean(recent_accel, axis=0) - self.gravity
+                self.gyro_bias = np.mean(recent_gyro, axis=0)
+
+    def process_imu(self, accel, gyro, dt):
+        """Process IMU data and return motion prediction"""
+        if dt is None or dt <= 0:
+            return np.eye(4)
+
+        # Remove biases
+        accel_corrected = accel - self.accel_bias
+        gyro_corrected = gyro - self.gyro_bias
+
+        # Apply low-pass filter to accelerometer only if enough samples
+        if len(self.accel_buffer) > 15:  # Minimum required for filter
+            accel_array = np.array(list(self.accel_buffer))
+            accel_filtered = signal.filtfilt(self.b, self.a, accel_array, axis=0)
+            if len(accel_filtered) > 0:
+                accel_corrected = accel_filtered[-1]
+
+        # Update orientation using gyroscope
+        angle = np.linalg.norm(gyro_corrected) * dt
+        if angle > 0:
+            axis = gyro_corrected / np.linalg.norm(gyro_corrected)
+            rot_matrix = R.from_rotvec(axis * angle).as_matrix()
+            self.orientation = self.orientation @ rot_matrix
+
+        # Transform acceleration to world frame
+        accel_world = self.orientation @ accel_corrected
+
+        # Remove gravity
+        accel_world -= self.gravity
+
+        # Update velocity and position
+        self.velocity += accel_world * dt
+        self.position += self.velocity * dt + 0.5 * accel_world * dt * dt
+
+        # Create transformation matrix
+        T_imu = np.eye(4)
+        T_imu[:3, :3] = self.orientation
+        T_imu[:3, 3] = self.position
+
+        return T_imu
+
+    def get_prediction(self, timestamp):
+        """Get motion prediction for given timestamp"""
+        if self.last_timestamp is None:
+            self.last_timestamp = timestamp
+            return np.eye(4)
+
+        dt = timestamp - self.last_timestamp
+        self.last_timestamp = timestamp
+
+        if len(self.accel_buffer) > 0 and len(self.gyro_buffer) > 0:
+            accel = self.accel_buffer[-1]
+            gyro = self.gyro_buffer[-1]
+            return self.process_imu(accel, gyro, dt)
+
+        return np.eye(4)
+
+    def reset_integration(self):
+        """Reset integration states"""
+        self.velocity = np.zeros(3)
+        self.position = np.zeros(3)
+
+
+class VisualInertialFusion:
+    """Handles fusion between visual odometry and IMU predictions"""
+
+    def __init__(self):
+        self.visual_confidence = 1.0
+        self.imu_confidence = 0.3
+        self.last_visual_pose = np.eye(4)
+        self.drift_correction = np.eye(4)
+
+    def update_confidence(self, tracking_quality, motion_magnitude):
+        """Update confidence weights based on tracking quality"""
+        # Increase IMU confidence during fast motion
+        if motion_magnitude > 0.5:
+            self.imu_confidence = min(0.7, self.imu_confidence + 0.1)
+            self.visual_confidence = max(0.3, self.visual_confidence - 0.1)
+        else:
+            self.imu_confidence = max(0.3, self.imu_confidence - 0.05)
+            self.visual_confidence = min(1.0, self.visual_confidence + 0.05)
+
+    def fuse_poses(self, visual_pose, imu_prediction, tracking_success=True):
+        """Fuse visual and IMU pose estimates"""
+        if not tracking_success:
+            # Rely more on IMU when visual tracking fails
+            return imu_prediction
+
+        # Weighted average of transformations
+        weight_visual = self.visual_confidence / (self.visual_confidence + self.imu_confidence)
+        weight_imu = self.imu_confidence / (self.visual_confidence + self.imu_confidence)
+
+        # Separate rotation and translation
+        visual_rot = visual_pose[:3, :3]
+        visual_trans = visual_pose[:3, 3]
+        imu_rot = imu_prediction[:3, :3]
+        imu_trans = imu_prediction[:3, 3]
+
+        # Fuse rotations using SLERP
+        visual_quat = R.from_matrix(visual_rot).as_quat()
+        imu_quat = R.from_matrix(imu_rot).as_quat()
+
+        # Simple quaternion interpolation
+        fused_quat = weight_visual * visual_quat + weight_imu * imu_quat
+        fused_quat /= np.linalg.norm(fused_quat)
+        fused_rot = R.from_quat(fused_quat).as_matrix()
+
+        # Fuse translations
+        fused_trans = weight_visual * visual_trans + weight_imu * imu_trans
+
+        # Construct fused transformation
+        fused_pose = np.eye(4)
+        fused_pose[:3, :3] = fused_rot
+        fused_pose[:3, 3] = fused_trans
+
+        return fused_pose
+
+    def detect_drift(self, visual_pose, imu_pose):
+        """Detect and correct systematic drift"""
+        # Calculate difference between visual and IMU estimates
+        diff = np.linalg.inv(visual_pose) @ imu_pose
+
+        # Check if difference is significant
+        rotation_diff = np.arccos(np.clip((np.trace(diff[:3, :3]) - 1) / 2, -1, 1))
+        translation_diff = np.linalg.norm(diff[:3, 3])
+
+        if rotation_diff > 0.1 or translation_diff > 0.1:
+            # Apply gradual drift correction
+            alpha = 0.01  # Correction rate
+            self.drift_correction = (1 - alpha) * self.drift_correction + alpha * diff
+
+        return self.drift_correction
+
+
 class ReconstructionWindow:
 
     def __init__(self, config, font_id):
         self.config = config
 
         self.window = gui.Application.instance.create_window(
-            'Open3D - Reconstruction', 1280, 800)
+            'Open3D - Visual-Inertial Reconstruction', 1280, 720)
 
         w = self.window
         em = w.theme.font_size
@@ -140,6 +324,13 @@ class ReconstructionWindow:
         self.adjustable_prop_grid.add_child(raycast_label)
         self.adjustable_prop_grid.add_child(self.raycast_box)
 
+        ### IMU fusion enabled?
+        imu_label = gui.Label('IMU fusion?')
+        self.imu_box = gui.Checkbox('')
+        self.imu_box.checked = True
+        self.adjustable_prop_grid.add_child(imu_label)
+        self.adjustable_prop_grid.add_child(self.imu_box)
+
         set_enabled(self.fixed_prop_grid, True)
 
         ## Application control
@@ -174,16 +365,6 @@ class ReconstructionWindow:
         self.output_info.font_id = font_id
         tab3.add_child(self.output_info)
         tabs.add_tab('Info', tab3)
-
-        ### Occupancy Grid tab
-        tab4 = gui.Vert(0, tab_margins)
-        self.occupancy_grid_image = gui.ImageWidget()
-        self.occupancy_info = gui.Label('Occupancy grid info')
-        self.occupancy_info.font_id = font_id
-        tab4.add_child(self.occupancy_grid_image)
-        tab4.add_fixed(vspacing)
-        tab4.add_child(self.occupancy_info)
-        tabs.add_tab('Occupancy Grid', tab4)
 
         self.panel.add_child(gui.Label('Starting settings'))
         self.panel.add_child(self.fixed_prop_grid)
@@ -225,15 +406,11 @@ class ReconstructionWindow:
         # Initialize camera for live streaming
         self.camera = None
 
-        # Occupancy grid parameters
-        self.occupancy_grid_resolution = 0.05  # 5cm per pixel
-        self.occupancy_grid_size = (400, 400)  # 20m x 20m grid
-        self.occupancy_grid_origin = (10.0, 10.0)  # offset from origin
-        self.occupancy_height_min = 0.1  # 10cm above ground
-        self.occupancy_height_max = 2.0  # 2m height limit
-        self.occupancy_update_interval = 30  # update every 30 frames
-        self.last_occupancy_update = 0
-        self.current_occupancy_grid = None
+        # Initialize IMU components
+        self.imu_processor = IMUProcessor()
+        self.fusion = VisualInertialFusion()
+        self.imu_thread = None
+        self.imu_running = False
 
         # Start running
         threading.Thread(name='UpdateMain', target=self.update_main).start()
@@ -287,6 +464,7 @@ class ReconstructionWindow:
 
     def _on_close(self):
         self.is_done = True
+        self.imu_running = False
 
         # Stop camera when closing
         if self.camera:
@@ -308,218 +486,7 @@ class ReconstructionWindow:
             save_poses(log_fname, self.poses)
             print('Finished.')
 
-            # Save occupancy grid if available
-            if self.current_occupancy_grid is not None:
-                grid_fname = '.'.join(self.config.path_npz.split('.')[:-1]) + '_occupancy_grid.npy'
-                np.save(grid_fname, self.current_occupancy_grid)
-                print('Occupancy grid saved to {}...'.format(grid_fname))
-
         return True
-
-    def world_to_grid(self, world_x, world_y):
-        """Convert world coordinates to grid indices."""
-        grid_x = int((world_x + self.occupancy_grid_origin[0]) / self.occupancy_grid_resolution)
-        grid_y = int((world_y + self.occupancy_grid_origin[1]) / self.occupancy_grid_resolution)
-        return grid_x, grid_y
-
-    def is_valid_grid_cell(self, grid_x, grid_y):
-        """Check if grid coordinates are within bounds."""
-        return (0 <= grid_x < self.occupancy_grid_size[0] and
-                0 <= grid_y < self.occupancy_grid_size[1])
-
-    def create_occupancy_grid_from_pointcloud(self, pcd):
-        """Create occupancy grid from point cloud """
-        if pcd is None or pcd.point.positions.shape[0] == 0:
-            return None
-
-        try:
-            # Convert tensor point cloud to legacy for VoxelGrid creation
-            legacy_pcd = pcd.to_legacy()
-
-            # Filter points by height
-            points = np.asarray(legacy_pcd.points)
-            height_mask = ((points[:, 2] >= self.occupancy_height_min) &
-                           (points[:, 2] <= self.occupancy_height_max))
-
-            if not np.any(height_mask):
-                return None
-
-            # Create filtered point cloud
-            filtered_pcd = o3d.geometry.PointCloud()
-            filtered_pcd.points = o3d.utility.Vector3dVector(points[height_mask])
-
-            # Create voxel grid from filtered point cloud
-            voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(
-                filtered_pcd,
-                voxel_size=self.occupancy_grid_resolution
-            )
-
-            # Initialize occupancy grid
-            occupancy_grid = np.full(self.occupancy_grid_size, 50, dtype=np.int8)  # 50 = unknown
-
-            # Mark occupied cells
-            for voxel in voxel_grid.get_voxels():
-                # Get voxel center
-                voxel_center = voxel_grid.origin + voxel.grid_index * voxel_grid.voxel_size
-
-                # Convert to grid coordinates
-                grid_x, grid_y = self.world_to_grid(voxel_center[0], voxel_center[1])
-
-                if self.is_valid_grid_cell(grid_x, grid_y):
-                    occupancy_grid[grid_y, grid_x] = 100  # 100 = occupied
-
-            # Mark free space using ray tracing from recent camera poses
-            if len(self.poses) > 0:
-                self.mark_free_space_with_rays(occupancy_grid)
-
-            return occupancy_grid
-
-        except Exception as e:
-            print(f"Error creating occupancy grid: {e}")
-            return None
-
-    def mark_free_space_with_rays(self, occupancy_grid):
-        """Mark free space using simple ray tracing from camera poses."""
-        # Use last few poses to avoid excessive computation
-        recent_poses = self.poses[-5:] if len(self.poses) > 5 else self.poses
-
-        for pose in recent_poses:
-            try:
-                if pose.shape != (4, 4):
-                    continue
-
-                # Get camera position
-                cam_pos = pose[:3, 3]
-                cam_x, cam_y = cam_pos[0], cam_pos[1]
-
-                # Convert to grid coordinates
-                cam_grid_x, cam_grid_y = self.world_to_grid(cam_x, cam_y)
-
-                if not self.is_valid_grid_cell(cam_grid_x, cam_grid_y):
-                    continue
-
-                # Simple radial ray tracing
-                for angle in np.linspace(0, 2 * np.pi, 16):  # 16 rays around camera
-                    dx = np.cos(angle)
-                    dy = np.sin(angle)
-
-                    # Trace ray up to 3 meters
-                    max_range = int(3.0 / self.occupancy_grid_resolution)
-                    for step in range(1, max_range):
-                        ray_x = int(cam_grid_x + dx * step)
-                        ray_y = int(cam_grid_y + dy * step)
-
-                        if not self.is_valid_grid_cell(ray_x, ray_y):
-                            break
-
-                        # If we hit an occupied cell, stop
-                        if occupancy_grid[ray_y, ray_x] == 100:
-                            break
-
-                        # Mark as free space if currently unknown
-                        if occupancy_grid[ray_y, ray_x] == 50:
-                            occupancy_grid[ray_y, ray_x] = 0  # 0 = free
-
-            except Exception as e:
-                print(f"Error in ray tracing: {e}")
-                continue
-
-    def create_occupancy_grid_visualization(self, occupancy_grid):
-        """Create RGB visualization of occupancy grid."""
-        if occupancy_grid is None:
-            return None
-
-        try:
-            # Create RGB visualization with explicit contiguous array
-            vis_grid = np.zeros((occupancy_grid.shape[0], occupancy_grid.shape[1], 3), dtype=np.uint8, order='C')
-
-            # Color mapping
-            vis_grid[occupancy_grid == 0] = [255, 255, 255]  # White for free space
-            vis_grid[occupancy_grid == 100] = [0, 0, 0]  # Black for obstacles
-            vis_grid[occupancy_grid == 50] = [128, 128, 128]  # Gray for unknown
-
-            # Mark robot position
-            if len(self.poses) > 0:
-                latest_pose = self.poses[-1]
-                if latest_pose.shape == (4, 4):
-                    robot_pos = latest_pose[:3, 3]
-                    grid_x, grid_y = self.world_to_grid(robot_pos[0], robot_pos[1])
-
-                    if self.is_valid_grid_cell(grid_x, grid_y):
-                        # Draw robot as small green square
-                        size = 2
-                        for dx in range(-size, size + 1):
-                            for dy in range(-size, size + 1):
-                                rx, ry = grid_x + dx, grid_y + dy
-                                if self.is_valid_grid_cell(rx, ry):
-                                    vis_grid[ry, rx] = [0, 255, 0]  # Green for robot
-
-            # Flip vertically for correct display and ensure contiguous
-            vis_grid = np.flipud(vis_grid)
-            vis_grid = np.ascontiguousarray(vis_grid, dtype=np.uint8)
-
-            return vis_grid
-
-        except Exception as e:
-            print(f"Error creating occupancy grid visualization: {e}")
-            return None
-
-    def _update_occupancy_grid_gui(self, occupancy_grid):
-        """Helper method for GUI thread update."""
-        self.update_occupancy_grid_display(occupancy_grid)
-
-    def _update_render_gui(self, input_depth, input_color, raycast_depth, raycast_color, pcd, frustum):
-        """Helper method for GUI thread render update."""
-        self.update_render(input_depth, input_color, raycast_depth, raycast_color, pcd, frustum)
-
-    def update_occupancy_grid_display(self, occupancy_grid):
-        """Update occupancy grid visualization in GUI."""
-        if occupancy_grid is None:
-            return
-
-        try:
-            # Create visualization
-            vis_grid = self.create_occupancy_grid_visualization(occupancy_grid)
-
-            if vis_grid is not None and vis_grid.size > 0:
-                # Ensure array is contiguous for Open3D and has correct dimensions
-                if len(vis_grid.shape) == 3 and vis_grid.shape[2] == 3:
-                    vis_grid = np.ascontiguousarray(vis_grid, dtype=np.uint8)
-
-                    # Convert to Open3D image
-                    o3d_image = o3d.geometry.Image(vis_grid)
-                    self.occupancy_grid_image.update_image(o3d_image)
-                else:
-                    print(f"Invalid visualization grid shape: {vis_grid.shape}")
-                    return
-
-                # Update info text
-                total_cells = occupancy_grid.size
-                free_cells = np.sum(occupancy_grid == 0)
-                occupied_cells = np.sum(occupancy_grid == 100)
-                unknown_cells = np.sum(occupancy_grid == 50)
-
-                info_text = f'Occupancy Grid ({self.occupancy_grid_size[0]}x{self.occupancy_grid_size[1]})\n\n'
-                info_text += f'Resolution: {self.occupancy_grid_resolution:.3f} m/cell\n'
-                info_text += f'Coverage: {(total_cells - unknown_cells) / total_cells * 100:.1f}%\n\n'
-                info_text += f'Free space: {free_cells} ({free_cells / total_cells * 100:.1f}%)\n'
-                info_text += f'Occupied: {occupied_cells} ({occupied_cells / total_cells * 100:.1f}%)\n'
-                info_text += f'Unknown: {unknown_cells} ({unknown_cells / total_cells * 100:.1f}%)\n'
-
-                # Robot position info
-                if len(self.poses) > 0:
-                    latest_pose = self.poses[-1]
-                    if latest_pose.shape == (4, 4):
-                        robot_pos = latest_pose[:3, 3]
-                        grid_x, grid_y = self.world_to_grid(robot_pos[0], robot_pos[1])
-                        info_text += f'\nRobot position:\n'
-                        info_text += f'World: ({robot_pos[0]:.2f}, {robot_pos[1]:.2f})\n'
-                        info_text += f'Grid: ({grid_x}, {grid_y})\n'
-
-                self.occupancy_info.text = info_text
-
-        except Exception as e:
-            print(f"Error updating occupancy grid display: {e}")
 
     def init_render(self, depth_ref, color_ref):
         self.input_depth_image.update_image(
@@ -566,6 +533,25 @@ class ReconstructionWindow:
         mat.line_width = 5.0
         self.widget3d.scene.add_geometry("frustum", frustum, mat)
 
+    def imu_acquisition_thread(self):
+        """Separate thread for continuous IMU data acquisition"""
+        while self.imu_running and not self.is_done:
+            if self.camera:
+                imu_data = self.camera.get_imu_data()
+                if imu_data:
+                    timestamp = time.time()
+                    # Handle tuple format (accel, gyro) from get_imu_data
+                    if isinstance(imu_data, tuple) and len(imu_data) == 2:
+                        accel, gyro = imu_data
+                        self.imu_processor.add_measurement(accel, gyro, timestamp)
+                    elif isinstance(imu_data, dict):
+                        self.imu_processor.add_measurement(
+                            imu_data.get('accel'),
+                            imu_data.get('gyro'),
+                            timestamp
+                        )
+            time.sleep(0.005)  # 200Hz IMU sampling
+
     # Major loop
     def update_main(self):
         # Create camera configuration for D435iCamera
@@ -580,7 +566,13 @@ class ReconstructionWindow:
         # Initialize D435iCamera with shared camera manager
         try:
             self.camera = D435iCamera(camera_config)
-            print("D435iCamera initialized successfully for SLAM")
+            print("D435iCamera initialized successfully for Visual-Inertial SLAM")
+
+            # Start IMU acquisition thread
+            self.imu_running = True
+            self.imu_thread = threading.Thread(target=self.imu_acquisition_thread)
+            self.imu_thread.start()
+
         except Exception as e:
             print(f"Failed to initialize D435iCamera: {e}")
             return
@@ -592,6 +584,7 @@ class ReconstructionWindow:
         device = o3d.core.Device(self.config.device)
 
         T_frame_to_model = o3c.Tensor(np.identity(4))
+        T_frame_to_model_prev = np.identity(4)
 
         # Get initial frame for setup - retry with timeout
         print("Waiting for initial frames from camera...")
@@ -606,6 +599,12 @@ class ReconstructionWindow:
         if color_image is None or depth_image is None:
             print("Failed to get initial frames from camera after timeout")
             return
+
+        # IMU calibration during static period
+        print("Calibrating IMU... Please keep the camera still for 2 seconds")
+        time.sleep(2.0)
+        self.imu_processor.calibrate()
+        print("IMU calibration complete")
 
         # Convert to Open3D tensors
         depth_ref = o3d.t.geometry.Image(depth_image.astype(np.uint16)).to(device)
@@ -631,6 +630,10 @@ class ReconstructionWindow:
         self.idx = 0
         pcd = None
 
+        # Tracking quality metrics
+        tracking_success = True
+        motion_magnitude = 0.0
+
         start = time.time()
         try:
             while not self.is_done:
@@ -645,6 +648,8 @@ class ReconstructionWindow:
                     time.sleep(0.01)  # Brief pause before next attempt
                     continue
 
+                current_timestamp = time.time()
+
                 # Convert to Open3D tensors
                 depth = o3d.t.geometry.Image(depth_image.astype(np.uint16)).to(device)
                 color = o3d.t.geometry.Image(color_image).to(device)
@@ -653,15 +658,46 @@ class ReconstructionWindow:
                 input_frame.set_data_from_image('color', color)
 
                 if self.idx > 0:
+                    # Get IMU prediction if enabled
+                    imu_prediction = np.eye(4)
+                    if self.imu_box.checked and self.imu_processor:
+                        imu_prediction = self.imu_processor.get_prediction(current_timestamp)
+
+                    # Visual tracking
                     result = self.model.track_frame_to_model(
                         input_frame,
                         raycast_frame,
                         float(self.scale_slider.int_value),
                         self.max_slider.double_value,
                     )
-                    T_frame_to_model = T_frame_to_model @ result.transformation
 
-                self.poses.append(T_frame_to_model.cpu().numpy())
+                    visual_delta = result.transformation.cpu().numpy()
+                    tracking_success = result.fitness > 0.5  # Adjust threshold as needed
+
+                    # Calculate motion magnitude for confidence weighting
+                    motion_magnitude = np.linalg.norm(visual_delta[:3, 3])
+
+                    if self.imu_box.checked:
+                        # Update fusion confidence
+                        self.fusion.update_confidence(result.fitness, motion_magnitude)
+
+                        # Fuse visual and IMU estimates
+                        fused_transformation = self.fusion.fuse_poses(
+                            visual_delta,
+                            np.linalg.inv(T_frame_to_model_prev) @ imu_prediction,
+                            tracking_success
+                        )
+
+                        T_frame_to_model = T_frame_to_model @ o3c.Tensor(fused_transformation)
+
+                        # Reset IMU integration after fusion
+                        self.imu_processor.reset_integration()
+                    else:
+                        # Pure visual odometry
+                        T_frame_to_model = T_frame_to_model @ result.transformation
+
+                T_frame_to_model_prev = T_frame_to_model.cpu().numpy()
+                self.poses.append(T_frame_to_model_prev)
                 self.model.update_frame_pose(self.idx, T_frame_to_model)
                 self.model.integrate(input_frame,
                                      float(self.scale_slider.int_value),
@@ -683,18 +719,6 @@ class ReconstructionWindow:
                 else:
                     self.is_scene_updated = False
 
-                # Update occupancy grid periodically
-                if (self.idx - self.last_occupancy_update) >= self.occupancy_update_interval and pcd is not None:
-                    occupancy_grid = self.create_occupancy_grid_from_pointcloud(pcd)
-                    if occupancy_grid is not None:
-                        self.current_occupancy_grid = occupancy_grid.copy()  # Make a copy to avoid threading issues
-                        self.last_occupancy_update = self.idx
-
-                        # Update GUI with copy
-                        gui.Application.instance.post_to_main_thread(
-                            self.window, lambda grid=occupancy_grid.copy(): self._update_occupancy_grid_gui(grid)
-                        )
-
                 frustum = o3d.geometry.LineSet.create_camera_visualization(
                     color.columns, color.rows, intrinsic.numpy(),
                     np.linalg.inv(T_frame_to_model.cpu().numpy()), 0.2)
@@ -711,7 +735,7 @@ class ReconstructionWindow:
                 # Output info
                 info = 'Frame {}\n\n'.format(self.idx)
                 info += 'Transformation:\n{}\n'.format(
-                    np.array2string(T_frame_to_model.numpy(),
+                    np.array2string(T_frame_to_model_prev,
                                     precision=3,
                                     max_line_width=40,
                                     suppress_small=True))
@@ -727,30 +751,31 @@ class ReconstructionWindow:
                 info += f'Camera status: {"Streaming" if camera_status["is_streaming"] else "Not streaming"}\n'
                 info += f'Subscribers: {camera_status["subscribers"]}\n'
 
-                # Add occupancy grid info
-                if self.current_occupancy_grid is not None:
-                    grid = self.current_occupancy_grid
-                    info += f'\nOccupancy Grid:\n'
-                    info += f'  Size: {grid.shape[0]}x{grid.shape[1]}\n'
-                    info += f'  Resolution: {self.occupancy_grid_resolution}m/cell\n'
-                    unknown_cells = np.sum(grid == 50)
-                    info += f'  Coverage: {(grid.size - unknown_cells) / grid.size * 100:.1f}%\n'
+                # Add IMU fusion status
+                if self.imu_box.checked:
+                    info += f'IMU Fusion: ON\n'
+                    info += f'Visual confidence: {self.fusion.visual_confidence:.2f}\n'
+                    info += f'IMU confidence: {self.fusion.imu_confidence:.2f}\n'
+                    info += f'Motion magnitude: {motion_magnitude:.3f}\n'
+                    info += f'Tracking quality: {"Good" if tracking_success else "Poor"}\n'
+                else:
+                    info += f'IMU Fusion: OFF\n'
 
                 self.output_info.text = info
 
-                # Capture variables for GUI update
-                input_depth_img = input_frame.get_data_as_image('depth')
-                input_color_img = input_frame.get_data_as_image('color')
-                raycast_depth_img = raycast_frame.get_data_as_image('depth')
-                raycast_color_img = raycast_frame.get_data_as_image('color')
-
                 gui.Application.instance.post_to_main_thread(
-                    self.window, lambda: self._update_render_gui(
-                        input_depth_img, input_color_img, raycast_depth_img, raycast_color_img, pcd, frustum))
+                    self.window, lambda: self.update_render(
+                        input_frame.get_data_as_image('depth'),
+                        input_frame.get_data_as_image('color'),
+                        raycast_frame.get_data_as_image('depth'),
+                        raycast_frame.get_data_as_image('color'), pcd, frustum))
 
                 self.idx += 1
 
         finally:
+            self.imu_running = False
+            if self.imu_thread:
+                self.imu_thread.join()
             if self.camera:
                 self.camera.stop()
 
@@ -758,16 +783,6 @@ class ReconstructionWindow:
 
 
 if __name__ == '__main__':
-    # Set up signal handler for graceful shutdown
-    def signal_handler(sig, frame):
-        print('\nShutdown signal received, closing application...')
-        if 'w' in locals():
-            w._on_close()
-        sys.exit(0)
-
-
-    signal.signal(signal.SIGINT, signal_handler)
-
     parser = ConfigParser()
     parser.add(
         '--config',
@@ -789,14 +804,4 @@ if __name__ == '__main__':
     app.initialize()
     mono = app.add_font(gui.FontDescription(gui.FontDescription.MONOSPACE))
     w = ReconstructionWindow(config, mono)
-
-    try:
-        app.run()
-    except KeyboardInterrupt:
-        print('\nKeyboard interrupt received')
-        w._on_close()
-    except Exception as e:
-        print(f'Application error: {e}')
-        w._on_close()
-    finally:
-        print('Application terminated')
+    app.run()

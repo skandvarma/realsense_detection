@@ -28,17 +28,21 @@ from src.detection import DetectorFactory, Postprocessor
 from src.camera.depth_processor import DepthProcessor
 from src.camera.realsense_manager import CameraShareManager
 
+# Optional: Speech imports
+try:
+    import pyaudio
+    import wave
+    import tempfile
+    import whisper
+    SPEECH_AVAILABLE = True
+except ImportError:
+    SPEECH_AVAILABLE = False
+
 
 class UnifiedSystem:
     """Unified system for running SLAM and Detection together."""
 
     def __init__(self, slam_headless=True, detection_headless=False):
-        """Initialize unified system.
-
-        Args:
-            slam_headless: If True, SLAM runs without GUI (default: True)
-            detection_headless: If False, Detection shows GUI (default: False)
-        """
         self.slam_headless = slam_headless
         self.detection_headless = detection_headless
         self.running = False
@@ -47,24 +51,20 @@ class UnifiedSystem:
         self.slam_system = None
         self.detection_system = None
         self.shared_camera_manager = None
-        self.detection_prompt = None  # Store text prompt for detection
+        self.detection_prompt = None
 
-        # MINIMAL ADDITION: Session management
-        self.session_name = "unified"  # MINIMAL CHANGE: Fixed name without timestamp
-        self.save_interval = 30.0  # Save every 30 seconds
+        self.session_name = "unified"
+        self.save_interval = 30.0
         self.last_save_time = time.time()
 
-        # Create data directories
-        self.data_dir = Path("realsense_slam/data/sessions")  # MINIMAL CHANGE: New path
+        self.data_dir = Path("realsense_slam/data/sessions")
         self.data_dir.mkdir(parents=True, exist_ok=True)
         print(f"Session data will be saved to: {self.data_dir}/{self.session_name}_*")
 
-        # Window positions for detection
         self.window_positions = {
             'detection': (100, 100),
         }
 
-        # Shared data
         self.shared_data = {
             'slam_frame': None,
             'detection_frame': None,
@@ -73,10 +73,18 @@ class UnifiedSystem:
             'lock': threading.Lock()
         }
 
-        # Load configuration
         self.config = self.load_config()
 
-        # Setup signal handler
+        # Optional: load Whisper model
+        self.whisper_model = None
+        if SPEECH_AVAILABLE:
+            try:
+                self.whisper_model = whisper.load_model("base")
+                print("Whisper model loaded successfully")
+            except Exception as e:
+                print(f"Failed to load Whisper model: {e}")
+                self.whisper_model = None
+
         signal.signal(signal.SIGINT, self.signal_handler)
 
         print("=" * 60)
@@ -86,8 +94,54 @@ class UnifiedSystem:
         print(f"Session: {self.session_name}")
         print("=" * 60)
 
-        # Initialize shared camera
         self.initialize_shared_camera()
+
+    def get_speech_prompt(self):
+        """Record speech and transcribe into a text prompt (local Whisper)."""
+        if not SPEECH_AVAILABLE or not self.whisper_model:
+            return None
+
+        try:
+            chunk = 1024
+            fmt = pyaudio.paInt16
+            channels = 1
+            rate = 16000
+            record_seconds = 5
+
+            audio = pyaudio.PyAudio()
+            print(f"Recording for {record_seconds} seconds... Speak your detection prompt:")
+
+            stream = audio.open(format=fmt, channels=channels, rate=rate,
+                                input=True, frames_per_buffer=chunk)
+            frames = []
+            for _ in range(int(rate / chunk * record_seconds)):
+                data = stream.read(chunk, exception_on_overflow=False)
+                frames.append(data)
+
+            stream.stop_stream()
+            stream.close()
+            audio.terminate()
+
+            print("Recording finished. Transcribing...")
+            temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            with wave.open(temp_file.name, 'wb') as wf:
+                wf.setnchannels(channels)
+                wf.setsampwidth(audio.get_sample_size(fmt))
+                wf.setframerate(rate)
+                wf.writeframes(b''.join(frames))
+
+            result = self.whisper_model.transcribe(temp_file.name)
+            os.unlink(temp_file.name)
+
+            # Format transcription: remove punctuation, add final "."
+            text = result["text"].strip().lower()
+            text = text.replace(",", "").replace(".", "")
+            text = text.strip() + " ."
+
+            return text
+        except Exception as e:
+            print(f"Speech input failed: {e}")
+            return None
 
     def initialize_shared_camera(self):
         """Create and initialize shared camera manager."""
@@ -490,13 +544,22 @@ class UnifiedSystem:
 
     def start(self):
         """Start both systems with proper GUI handling."""
-        # Get detection prompt if needed
         if self.config['detection']['active_model'] == 'detr' and \
                 self.config['detection']['detr']['variant'] == 'grounding-dino':
-            self.detection_prompt = input(
-                "\nEnter detection prompt for Grounding DINO (e.g., 'person . car . dog'): "
-            ).strip()
-            print(f"Using detection prompt: '{self.detection_prompt}'")
+
+            # Try speech input first
+            if SPEECH_AVAILABLE and self.whisper_model:
+                print("\nUsing speech input for Grounding DINO prompt...")
+                self.detection_prompt = self.get_speech_prompt()
+                if self.detection_prompt:
+                    print(f"Speech prompt: '{self.detection_prompt}'")
+
+            # Fallback to manual input
+            if not self.detection_prompt:
+                self.detection_prompt = input(
+                    "\nEnter detection prompt for Grounding DINO (e.g., 'person . car . dog'): "
+                ).strip()
+                print(f"Using detection prompt: '{self.detection_prompt}'")
 
         self.running = True
 
