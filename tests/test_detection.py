@@ -18,13 +18,55 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.utils.config import ConfigManager
 from src.utils.logger import get_logger
-from src.camera.realsense_manager import RealSenseManager
+from src.camera.realsense_manager import CameraShareManager, RealSenseDetectionCamera  # Use ROS2 camera manager
 from src.camera.depth_processor import DepthProcessor
 from src.detection import DetectorFactory, Postprocessor
 
+import whisper
+import sounddevice as sd
+import tempfile
+import wave
+
+object_detected = False
+
+def set_detection_flag(detected):
+    """Write detection status to file."""
+    try:
+        with open("detection_flag.txt", "w") as f:
+            f.write("1" if detected else "0")
+    except:
+        pass
+
+def get_prompt_from_speech(duration: int = 5, samplerate: int = 16000, model_name: str = "medium") -> str:
+    """Capture microphone audio and transcribe it locally with Whisper (English only)."""
+    print(f"Recording {duration} seconds of audio for prompt...")
+    audio = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=1, dtype="int16")
+    sd.wait()
+
+    # Save temporary WAV
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
+        wav_path = f.name
+        with wave.open(f, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)  # int16
+            wf.setframerate(samplerate)
+            wf.writeframes(audio.tobytes())
+
+    # Load Whisper model (choose: "tiny", "base", "small", "medium", "large")
+    print(f"Loading Whisper model: {model_name}")
+    model = whisper.load_model(model_name)
+
+    # Transcribe in English only
+    result = model.transcribe(wav_path, language="en")
+    os.remove(wav_path)
+
+    prompt_text = result["text"].strip()
+    print(f"Whisper prompt (EN): {prompt_text}")
+    return prompt_text
+
 
 def create_test_setup(config_path: str = "config.yaml"):
-    """Create simplified test setup."""
+    """Create ROS2-compatible test setup."""
     logger = get_logger("DetectionTest")
 
     try:
@@ -32,22 +74,38 @@ def create_test_setup(config_path: str = "config.yaml"):
         config = ConfigManager.load_config(config_path)
         logger.info("Configuration loaded successfully")
 
-        # Initialize camera system (optional)
+        # Initialize ROS2 camera system
         camera_manager = None
         depth_processor = None
+        subscriber_id = None
 
         try:
-            camera_manager = RealSenseManager(config)
-            if camera_manager.initialize_camera():
+            logger.info("Initializing ROS2 camera system...")
+
+            # Use CameraShareManager (ROS2-based) instead of RealSenseManager (hardware-based)
+            camera_manager = CameraShareManager()
+
+            # Initialize with ROS2 topics
+            if camera_manager.initialize_camera(config):
+                # Register as subscriber to get frames
+                subscriber_id = camera_manager.register_subscriber("DetectionTest")
+                logger.info(f"Registered as ROS2 subscriber: {subscriber_id}")
+
+                # Initialize depth processor
                 depth_processor = DepthProcessor(camera_manager, config)
                 depth_processor.update_camera_parameters()
-                logger.info("Camera system initialized")
+                logger.info("ROS2 camera system and depth processor initialized")
             else:
-                logger.warning("Camera initialization failed, using test images only")
-        except Exception as e:
-            logger.warning(f"Camera setup failed: {e}")
+                logger.warning("ROS2 camera initialization failed")
+                camera_manager = None
 
-        # Initialize detection system
+        except Exception as e:
+            logger.warning(f"ROS2 camera setup failed: {e}")
+            logger.info("Make sure ROS2 RealSense node is running:")
+            logger.info("  ros2 launch realsense2_camera rs_launch.py")
+            camera_manager = None
+
+        # Initialize detection system (unchanged)
         factory = DetectorFactory()
         detector = factory.create_detector(config)
 
@@ -64,18 +122,22 @@ def create_test_setup(config_path: str = "config.yaml"):
             'config': config,
             'camera_manager': camera_manager,
             'depth_processor': depth_processor,
-            'detector': detector,  # Single detector instead of wrapper
+            'detector': detector,
             'postprocessor': postprocessor,
-            'logger': logger
+            'logger': logger,
+            'subscriber_id': subscriber_id  # Store subscriber ID for cleanup
         }
 
     except Exception as e:
         logger.error(f"Test setup failed: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
 def test_detection_on_image(setup: Dict[str, Any], image_path: str, text_prompt: str = None):
     """Test detection on a single image."""
+    global object_detected
     logger = setup['logger']
     detector = setup['detector']
     postprocessor = setup['postprocessor']
@@ -94,8 +156,7 @@ def test_detection_on_image(setup: Dict[str, Any], image_path: str, text_prompt:
         is_grounding_dino = hasattr(detector, 'is_grounding_dino') and detector.is_grounding_dino
         if is_grounding_dino:
             if not text_prompt:
-                # Ask user for prompt if not provided
-                text_prompt = input("Enter detection prompt (e.g., 'person . car . dog'): ").strip()
+                text_prompt = get_prompt_from_speech()
                 if not text_prompt:
                     logger.error("No prompt provided for Grounding DINO")
                     return False
@@ -119,6 +180,9 @@ def test_detection_on_image(setup: Dict[str, Any], image_path: str, text_prompt:
 
         # Apply postprocessing
         enhanced_result = postprocessor.process_detection_result(result, frame_id=0)
+
+        # Set global detection flag
+        object_detected = len(enhanced_result.detections) > 0
 
         # Log results
         logger.info(f"\nDETECTION COMPLETED SUCCESSFULLY!")
@@ -214,81 +278,81 @@ def test_detection_on_image(setup: Dict[str, Any], image_path: str, text_prompt:
 
 def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_video: bool = False,
                         save_frames: bool = False):
-    """Test live detection with camera feed."""
+    """Test live detection with ROS2 camera feed."""
     logger = setup['logger']
     camera_manager = setup['camera_manager']
     depth_processor = setup['depth_processor']
     detector = setup['detector']
     postprocessor = setup['postprocessor']
+    subscriber_id = setup.get('subscriber_id')
 
-    if not camera_manager:
-        logger.error("Camera not available for live detection test")
+    if not camera_manager or not subscriber_id:
+        logger.error("ROS2 camera not available for live detection test")
+        logger.info("Make sure to run: ros2 launch realsense2_camera rs_launch.py")
         return False
 
     try:
-        logger.info(f"Starting live detection test for {duration}s")
+        logger.info(f"Starting ROS2 live detection test for {duration}s")
+        logger.info(f"Subscriber ID: {subscriber_id}")
 
         # Check if using Grounding DINO
         is_grounding_dino = hasattr(detector, 'is_grounding_dino') and detector.is_grounding_dino
         if is_grounding_dino:
-            # Ask user for initial prompt
-            user_prompt = input("Enter detection prompt for live detection (e.g., 'person . car . dog'): ").strip()
+            user_prompt = get_prompt_from_speech()
             if not user_prompt:
                 logger.error("No prompt provided for Grounding DINO")
                 return False
             detector.update_text_prompt(user_prompt)
-            current_prompt = detector.get_current_prompt()
-            logger.info(f"Grounding DINO mode - Using prompt: '{current_prompt}'")
-
-            # Pre-defined prompts for cycling (from working implementation)
-            predefined_prompts = [
-                "person . car . chair . bottle . laptop",
-                "dog . cat . bird . animal",
-                "phone . cup . book . keys . bag",
-                "car . truck . bus . bicycle . motorcycle",
-                "person with glasses . person with hat . child",
-                "red object . blue object . green object",
-                "food . drink . plate . spoon . fork"
-            ]
-            current_prompt_index = 0
+            logger.info(f"Grounding DINO mode - Using prompt: '{detector.get_current_prompt()}'")
 
         if show_video:
             logger.info("Controls:")
-            if is_grounding_dino:
-                logger.info("  'p': Cycle through pre-defined prompts")
-                logger.info("  'c': Enter custom prompt")
-                logger.info("  'r': Reset to default prompt")
             logger.info("  'q': Quit")
             logger.info("  's': Save frame")
+            if is_grounding_dino:
+                logger.info("  'p': Cycle through prompts")
 
         start_time = time.time()
         frame_count = 0
         detection_times = []
         total_detections = 0
 
-        # Create output directory for saving frames
+        # Create output directory
         output_dir = Path("detection_output")
         output_dir.mkdir(exist_ok=True)
 
-        while time.time() - start_time < duration:
-            # Capture frame
-            frames = camera_manager.capture_frames()
-            if not frames or not frames.get('frame_valid', False):
-                continue
+        # Wait for camera to start streaming
+        logger.info("Waiting for ROS2 camera frames...")
+        wait_start = time.time()
+        while time.time() - wait_start < 10.0:  # 10 second timeout
+            color_frame, depth_frame = camera_manager.get_frames_for_subscriber(subscriber_id)
+            if color_frame is not None:
+                logger.info("ROS2 frames received, starting detection...")
+                break
+            time.sleep(0.1)
+        else:
+            logger.error("No frames received from ROS2 camera within 10 seconds")
+            logger.info("Check that ROS2 RealSense node is publishing to topics:")
+            logger.info("  ros2 topic list | grep camera")
+            return False
 
-            color_frame = frames.get('color')
-            depth_frame = frames.get('depth')
+        while time.time() - start_time < duration:
+            # Get frames from ROS2 subscriber (KEY CHANGE: different data structure)
+            color_frame, depth_frame = camera_manager.get_frames_for_subscriber(subscriber_id)
 
             if color_frame is None:
+                time.sleep(0.01)  # Small delay if no frame
                 continue
 
-            # Convert RGB to BGR for detection
+            # Frame data type conversion (if needed)
+            # ROS2 frames might be in different format than direct hardware frames
             if color_frame.shape[2] == 3:
+                # Convert RGB to BGR for detection (OpenCV format)
                 bgr_frame = cv2.cvtColor(color_frame, cv2.COLOR_RGB2BGR)
             else:
                 bgr_frame = color_frame
 
-            # Perform detection
+            # Perform detection (unchanged interface)
             detection_start = time.time()
             kwargs = {'frame_id': frame_count}
             if is_grounding_dino:
@@ -297,96 +361,68 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
             result = detector.detect(bgr_frame, **kwargs)
 
             if result.success:
-                # Apply postprocessing with depth if available
+                # Apply postprocessing with depth (depth_frame is numpy array, not dict)
                 enhanced_result = postprocessor.process_detection_result(
                     result, depth_frame, frame_count
                 )
+
+                global object_detected
+                # Set detection flag
+                detected = len(enhanced_result.detections) > 0
+                set_detection_flag(detected)
 
                 detection_time = time.time() - detection_start
                 detection_times.append(detection_time)
                 total_detections += len(enhanced_result.detections)
 
-                # Show detailed detection info every 30 frames
+                # Log detection info
                 if frame_count % 30 == 0 or len(enhanced_result.detections) > 0:
                     fps = 1.0 / detection_time if detection_time > 0 else 0
+                    logger.info(f"Frame {frame_count}: {len(enhanced_result.detections)} objects, {fps:.1f} FPS")
 
-                    # Show current prompt for Grounding DINO
-                    prompt_info = ""
-                    if is_grounding_dino:
-                        prompt_info = f" | Prompt: '{detector.get_current_prompt()}'"
-
-                    logger.info(
-                        f"\nFrame {frame_count}: {len(enhanced_result.detections)} objects detected, {fps:.1f} FPS{prompt_info}")
-
-                    # Show each detection with details
                     for i, detection in enumerate(enhanced_result.detections):
                         x1, y1, x2, y2 = detection.bbox
                         det_info = f"   {i + 1}. {detection.class_name}: {detection.confidence:.3f}"
-                        det_info += f" at ({x1:.0f},{y1:.0f}) → ({x2:.0f},{y2:.0f})"
 
                         # Add 3D info if available
                         if hasattr(detection, 'center_3d') and detection.center_3d != (0, 0, 0):
                             det_info += f" | 3D: ({detection.center_3d[0]:.2f}, {detection.center_3d[1]:.2f}, {detection.center_3d[2]:.2f}m)"
-                            det_info += f" | Distance: {detection.distance:.2f}m"
-                        # Add tracking ID if available
-                        if detection.detection_id is not None:
-                            det_info += f" | ID: {detection.detection_id}"
 
                         logger.info(det_info)
 
-                # Save visualization every 60 frames or when objects detected (if saving enabled)
-                if (frame_count % 60 == 0 or len(enhanced_result.detections) > 0) and save_frames:
+                # Save frames if requested
+                if save_frames and (frame_count % 60 == 0 or len(enhanced_result.detections) > 0):
                     vis_image = create_detection_visualization(bgr_frame, enhanced_result.detections, depth_frame)
-                    output_file = str(output_dir / f"detection_frame_{frame_count:06d}.jpg")
+                    output_file = str(output_dir / f"ros2_detection_{frame_count:06d}.jpg")
                     cv2.imwrite(output_file, vis_image)
 
-                    if frame_count % 60 == 0:
-                        logger.info(f"Saved visualization: detection_frame_{frame_count:06d}.jpg")
-
-                # Show video if requested
+                # Display video if requested
                 if show_video:
                     vis_image = create_detection_visualization(bgr_frame, enhanced_result.detections, depth_frame)
 
-                    # Add prompt info to visualization for Grounding DINO
+                    # Add ROS2 info to display
+                    cv2.putText(vis_image, f"ROS2 Frame {frame_count}", (10, vis_image.shape[0] - 60),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
                     if is_grounding_dino:
                         prompt_text = f"Prompt: {detector.get_current_prompt()}"
                         cv2.putText(vis_image, prompt_text, (10, vis_image.shape[0] - 40),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
-                    cv2.imshow("Live Detection", vis_image)
+                    cv2.imshow("ROS2 Live Detection", vis_image)
 
             frame_count += 1
 
-            # Check for early exit and hotkeys
+            # Handle keyboard input
             if show_video:
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord('q'):
                     logger.info("Early exit requested")
                     break
-                elif key == ord('p') and is_grounding_dino:
-                    # Cycle through pre-defined prompts
-                    current_prompt_index = (current_prompt_index + 1) % len(predefined_prompts)
-                    new_prompt = predefined_prompts[current_prompt_index]
-                    detector.update_text_prompt(new_prompt)
-                    logger.info(
-                        f"Switched to prompt {current_prompt_index + 1}/{len(predefined_prompts)}: '{new_prompt}'")
-                elif key == ord('c') and is_grounding_dino:
-                    # Custom prompt (pause detection briefly)
-                    logger.info("\nEnter custom prompt (separate objects with ' . '):")
-                    print("Prompt: ", end='', flush=True)
-                    # Note: In a real implementation, you'd need a better way to get input during live detection
-                    # For now, just log that this feature is available
-                    logger.info("Custom prompt feature available - use 'p' to cycle through presets")
-                elif key == ord('r') and is_grounding_dino:
-                    # Reset to default prompt
-                    detector.update_text_prompt(detector.default_prompt)
-                    current_prompt_index = 0
-                    logger.info(f"Reset to default prompt: '{detector.default_prompt}'")
                 elif key == ord('s'):
-                    # Save current frame
                     if 'enhanced_result' in locals():
                         vis_image = create_detection_visualization(bgr_frame, enhanced_result.detections, depth_frame)
-                        save_path = str(output_dir / f"manual_save_{frame_count:06d}.jpg")
+                        save_path = str(output_dir / f"ros2_manual_save_{frame_count:06d}.jpg")
                         cv2.imwrite(save_path, vis_image)
                         logger.info(f"Manual save: {save_path}")
 
@@ -398,21 +434,13 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
             detection_fps = 1.0 / avg_detection_time if avg_detection_time > 0 else 0
         else:
             avg_fps = 0
-            avg_detection_time = 0
             detection_fps = 0
 
-        logger.info(f"\nLIVE DETECTION TEST COMPLETED!")
-        logger.info(f"Total frames processed: {frame_count}")
+        logger.info(f"\nROS2 LIVE DETECTION TEST COMPLETED!")
+        logger.info(f"Total ROS2 frames processed: {frame_count}")
         logger.info(f"Total objects detected: {total_detections}")
-        logger.info(f"Average camera FPS: {avg_fps:.2f}")
+        logger.info(f"Average ROS2 camera FPS: {avg_fps:.2f}")
         logger.info(f"Average detection FPS: {detection_fps:.2f}")
-        logger.info(f"Average detection time: {avg_detection_time * 1000:.1f}ms")
-        logger.info(f"Visualizations saved to: {output_dir}/")
-
-        # Get tracking statistics
-        tracking_stats = postprocessor.get_tracking_statistics()
-        logger.info(f"Active tracks: {tracking_stats['confirmed_tracks']}")
-        logger.info(f"Total tracks created: {tracking_stats['total_tracks']}")
 
         if show_video:
             cv2.destroyAllWindows()
@@ -420,10 +448,31 @@ def test_live_detection(setup: Dict[str, Any], duration: float = 10.0, show_vide
         return True
 
     except Exception as e:
-        logger.error(f"Live detection test failed: {e}")
+        logger.error(f"ROS2 live detection test failed: {e}")
         import traceback
         traceback.print_exc()
         return False
+
+def cleanup_test_setup(setup: Dict[str, Any]):
+    """Clean up ROS2 test setup resources."""
+    logger = setup.get('logger')
+    camera_manager = setup.get('camera_manager')
+    subscriber_id = setup.get('subscriber_id')
+    detector = setup.get('detector')
+
+    try:
+        # Cleanup detector
+        if detector:
+            detector.cleanup()
+
+        # Cleanup ROS2 subscriber
+        if camera_manager and subscriber_id:
+            camera_manager.unregister_subscriber(subscriber_id)
+            logger.info(f"Unregistered ROS2 subscriber: {subscriber_id}")
+
+    except Exception as e:
+        if logger:
+            logger.warning(f"Cleanup error: {e}")
 
 
 def create_detection_visualization(image: np.ndarray, detections: List,
@@ -582,11 +631,40 @@ def main():
     # Setup detection system
     setup = create_test_setup(args.config)
     if not setup:
-        print("Failed to create test setup")
+        print("Failed to create ROS2 test setup")
+        print("Make sure ROS2 RealSense node is running:")
+        print("  ros2 launch realsense2_camera rs_launch.py")
         sys.exit(1)
 
     logger = setup['logger']
     success = True
+
+    try:
+        if args.image:
+            # Test on specific image (unchanged)
+            success = test_detection_on_image(setup, args.image, args.prompt)
+
+        elif args.live:
+            # ROS2 live detection test
+            logger.info("Starting ROS2 live detection test...")
+            logger.info("Make sure ROS2 RealSense node is running:")
+            logger.info("  ros2 launch realsense2_camera rs_launch.py")
+            success = test_live_detection(setup, args.duration, show_video=args.show_video,
+                                          save_frames=args.save_frames)
+        else:
+            # Default comprehensive test (unchanged)
+            success = test_detection_on_image(setup, "comprehensive_test_image.jpg", args.prompt)
+
+    except KeyboardInterrupt:
+        logger.info("Test interrupted by user")
+    except Exception as e:
+        logger.error(f"Test failed: {e}")
+        success = False
+    finally:
+        # ROS2-specific cleanup
+        cleanup_test_setup(setup)
+
+    sys.exit(0 if success else 1)
 
     try:
         if args.image:

@@ -94,7 +94,7 @@ detection:
     model_name: "IDEA-Research/grounding-dino-tiny"
 
     # Detection Parameters
-    confidence_threshold: 0.2
+    confidence_threshold: 0.8
     max_detections: 10
 
     # Input Configuration
