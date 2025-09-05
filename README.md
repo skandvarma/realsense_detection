@@ -106,6 +106,8 @@ To run the object detection pipeline, execute the following command:
 
 > Run this command for SLAM and change the parameters accordingly to either save the map or just for viewing the map .
 
+> If you want to run the open3d pipeline , the camera needs to be connected to the computer and can be run through here "python realsense_slam/src/Open3D/examples/python/t_reconstruction_system/enhanced_slam_v2.py"
+
 ### Configuration
 
 > Details about the `config.yaml` file and its parameters will be added here.  This is a placeholder.
