@@ -76,7 +76,7 @@ bash
    # venv\Scripts\activate  # On Windows
       [https://github.com/skandvarma/ros2_ws](https://github.com/skandvarma/ros2_ws)
 
-   > **Important:** This setup is designed to run on two computers: a host (e.g., Intel NUC) and a client. The host provides the camera feed using the rs-server from the specified repository. Make sure your ROS2 environment is properly sourced on both machines after installing the package. Follow the instructions at [https://github.com/skandvarma/ros2_ws](https://github.com/skandvarma/ros2_ws) for setting up the host. Our pipelines will work on the client side.
+   > **Important:** This setup is designed to run on two computers: a host (e.g., Intel NUC) and a client. The host provides the camera feed using the rs-server from the specified repository. Make sure your ROS2 environment is properly sourced on both machines after installing the package. Follow the instructions at [https://github.com/skandvarma/ros2_ws](https://github.com/skandvarma/ros2_ws) for setting up the client. Our pipelines will work on the client side.
 
 5. **Download Models:** The YOLO and Detection Transformer pipelines require downloading models. Ensure you have an active internet connection when running these for the first time, as the models will be downloaded to your host laptop. You are required to manually download the necessary YOLOv5 models (e.g., `yolov5s.pt`, `yolov5m.pt`, etc.) from the [official YOLOv5 repository](https://github.com/ultralytics/yolov5/releases). Place the downloaded model file in the `models/yolo` directory.
 
