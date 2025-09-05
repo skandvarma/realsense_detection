@@ -122,3 +122,4 @@ To run the object detection pipeline, execute the following command:
 ## Contributing
 
 Contributions are welcome! Please follow these steps:
+email on skandvarma2004@gmail.com
